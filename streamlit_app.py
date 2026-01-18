@@ -1,39 +1,38 @@
+import os
 import re
+import uuid
+from datetime import datetime, timezone
+
 import streamlit as st
 from openai import OpenAI
 
-# =========================
-# 0) PAGE
-# =========================
-st.set_page_config(
-    page_title="MAP SYSTEM",
-    page_icon="🛡️",
-    layout="centered",
-)
-
+# -----------------------------
+# 0) 기본 설정
+# -----------------------------
+st.set_page_config(page_title="MAP SYSTEM", page_icon="🛡️", layout="centered")
 st.title("🛡️ MAP SYSTEM")
-st.caption("센터·트레이너·관장을 보호하는 비의료 행정 안전 분류 시스템")
+st.caption("센터 · 트레이너 · 관장을 보호하는 안전 관리(비의료) 기록 시스템")
 
-# =========================
-# 1) SECRETS
-# =========================
-# Streamlit Cloud > App > Settings > Secrets 에 아래처럼 넣어야 함:
-# OPENAI_API_KEY="sk-...."
-# LICENSE_EXP="2027-12-31"  # (선택) 프롬프트 만료일 자동 교체용
-
-api_key = st.secrets.get("OPENAI_API_KEY", "")
-license_exp_override = st.secrets.get("LICENSE_EXP", "").strip()
+# -----------------------------
+# 1) OpenAI Key 로드 (Secrets 우선)
+# -----------------------------
+api_key = None
+if "OPENAI_API_KEY" in st.secrets:
+    api_key = st.secrets["OPENAI_API_KEY"]
+else:
+    api_key = os.getenv("OPENAI_API_KEY")
 
 if not api_key:
-    st.error("OPENAI_API_KEY가 설정되지 않았습니다. (Settings → Secrets)")
+    st.error("OPENAI_API_KEY가 없습니다. Streamlit Secrets에 OPENAI_API_KEY를 저장하세요.")
     st.stop()
 
 client = OpenAI(api_key=api_key)
 
-# =========================
-# 2) SYSTEM PROMPT (네가 준 내용 그대로)
-# =========================
-SYSTEM_PROMPT_RAW = r"""
+# -----------------------------
+# 2) 시스템 프롬프트 (사용자 제공 LITE)
+#    ※ 아래에 재권님 프롬프트를 그대로 붙여넣으면 됨
+# -----------------------------
+SYSTEM_PROMPT = r"""
 # MASTER SYSTEM: MAP_INTEGRATED_CORE_v2026 (LITE)
 # PRIORITY: Legal Safety > Operational Structure > Member Care
 
@@ -191,70 +190,140 @@ ELSE IF Type 5 (RATIONALE):
   개별 사례에 대한 해석이나 상세 설명은 제공하지 않습니다.
   ---
 ELSE: Output NOTHING.
-""".strip()
-
-def apply_license_override(prompt: str, new_date: str) -> str:
-    """
-    프롬프트의 LICENSE Exp 날짜를 Secrets 값으로 교체.
-    (안 하면, 현재 날짜 기준 Type 4만 계속 나올 수 있음)
-    """
-    if not new_date:
-        return prompt
-    # Exp: YYYY-MM-DD 패턴 교체
-    return re.sub(r"Exp:\s*\d{4}-\d{2}-\d{2}", f"Exp: {new_date}", prompt)
-
-SYSTEM_PROMPT = apply_license_override(SYSTEM_PROMPT_RAW, license_exp_override)
-
-# =========================
-# 3) UI INPUT
-# =========================
-with st.form("map_form", clear_on_submit=False):
-    col1, col2 = st.columns(2)
-    with col1:
-        member_info = st.text_input("1) 회원 정보", placeholder="예: 남/50대/과거력")
-    with col2:
-        symptom = st.text_input("2) 현재 증상", placeholder="예: 허리 통증, 저림")
-
-    exercise = st.text_input("3) 예정 운동", placeholder="예: 데드리프트 / 스쿼트 / 벤치")
-
-    submitted = st.form_submit_button("🛡️ MAP 분석 실행")
-
-st.divider()
-
-# =========================
-# 4) RUN
-# =========================
-if submitted:
-    if not (member_info and symptom and exercise):
-        st.warning("3개 항목을 모두 입력해야 판정이 생성됩니다.")
-        st.stop()
-
-    user_input = f"""[MAP INPUT]
-1. 회원 정보: {member_info}
-2. 현재 증상: {symptom}
-3. 예정 운동: {exercise}
 """
 
-    with st.spinner("MAP 엔진 실행 중..."):
-        try:
-            resp = client.chat.completions.create(
-                model="gpt-4o-mini",   # 비용/속도 균형. 필요 시 gpt-4o로 변경 가능
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_input},
-                ],
-                temperature=0.2,
-            )
-            result = resp.choices[0].message.content.strip()
+# -----------------------------
+# 3) 입력 UI (트레이너용: 3칸)
+# -----------------------------
+with st.form("map_form"):
+    col1, col2 = st.columns(2)
+    with col1:
+        member_info = st.text_input("1) 회원 정보", placeholder="예: 남/50대/과거력(익명 권장)")
+    with col2:
+        symptom = st.text_input("2) 현재 증상", placeholder="예: 허리 통증, 무릎 불편감")
+    exercise = st.text_input("3) 예정 운동", placeholder="예: 스쿼트, 데드리프트")
 
-            st.success("완료")
-            st.markdown(result)
+    submitted = st.form_submit_button("🛡️ MAP 분석 생성")
 
-            # (선택) 카톡 템플릿만 빠르게 복사하도록 안내
-            st.info("카톡으로 보낼 부분만 복사하려면, 출력에서 '카카오톡 전송 템플릿' 섹션을 길게 눌러 복사하세요.")
+# -----------------------------
+# 4) 유틸: 타입 판별 / 플레이스홀더 치환 / 카톡 영역 추출
+# -----------------------------
+def detect_type(text: str) -> int:
+    t = text.lower()
+    if "license expired" in t:
+        return 4
+    if "red flag" in t:
+        return 6
+    if "[map 안전 판정 데이터 입력]" in text:
+        return 1
+    if "security" in t and "refusal" in t:
+        return 3
+    if "generic" in t and "principle" in t:
+        return 5
+    return 2
 
-        except Exception as e:
-            st.error(f"오류: {e}")
-            st.stop()
-else:
-    st.caption("입력 후 실행하면, MAP 리포트 + 카카오톡 전송 템플릿이 출력됩니다.")
+def wrapper_for(type_id: int) -> str:
+    if type_id == 6:
+        return (
+            "\n---\n⚠️ **안내**\n"
+            "이 메시지는 오류가 아닙니다.\n"
+            "현재 상태에서는 운동 계획을 논의하기보다,\n"
+            "**트레이너가 현장에서 다음 현장 절차를 안내하는 흐름**으로 전환됩니다.\n---\n"
+        )
+    if type_id == 1:
+        return (
+            "\n---\nℹ️ **안내**\n"
+            "MAP 안전 판정은 운동 시작 전,\n"
+            "**판단 진행 가능 여부를 확인하는 절차**입니다.\n"
+            "3개 항목이 모두 입력된 경우에만 판정 출력이 생성됩니다.\n---\n"
+        )
+    if type_id == 2:
+        return (
+            "\n---\nℹ️ **안내**\n"
+            "위 내용은 **안전 기준 분류 결과**이며,\n"
+            "실제 진행 여부와 방식은 **트레이너와 현장에서 함께 결정**됩니다.\n---\n"
+        )
+    if type_id == 5:
+        return (
+            "\n---\nℹ️ **안내**\n"
+            "MAP 엔진은 기준에 대한 일반 원칙만 제공하며,\n"
+            "개별 사례에 대한 해석이나 상세 설명은 제공하지 않습니다.\n---\n"
+        )
+    return ""
+
+def extract_kakao_block(text: str) -> str:
+    # "### 3. 💬 카카오톡 전송 템플릿" 이후를 우선 추출
+    m = re.search(r"###\s*3\.\s*💬\s*카카오톡 전송 템플릿\s*-{3,}\s*(.*)", text, re.DOTALL)
+    if m:
+        block = m.group(1).strip()
+        # 뒤쪽 다른 섹션이 섞이면 잘라내기
+        block = re.split(r"\n###\s*\d\.", block)[0].strip()
+        return block
+    # RED FLAG 단독이면 전체를 카톡으로 취급
+    if "red flag" in text.lower():
+        return text.strip()
+    return ""
+
+def apply_replacements(text: str, client_tag: str, session_hash: str, ts: str, exercise_summary: str) -> str:
+    out = text
+    out = out.replace("{Client_Tag}", client_tag)
+    out = out.replace("{Session_Hash}", session_hash)
+    out = out.replace("{Timestamp}", ts)
+    out = out.replace("{Exercise_Summary}", exercise_summary)
+    return out
+
+# -----------------------------
+# 5) 실행
+# -----------------------------
+if submitted:
+    if not (member_info and symptom and exercise):
+        st.warning("3개 항목을 모두 입력해야 합니다.")
+        st.stop()
+
+    # 익명화 태그 + 세션 코드 + 타임스탬프
+    now = datetime.now(timezone.utc).astimezone()  # 로컬 타임존
+    ts = now.strftime("%Y-%m-%d %H:%M:%S %Z")
+    session_hash = f"MAP-{now.strftime('%Y%m%d-%H%M')}-{uuid.uuid4().hex[:6].upper()}"
+    client_tag = f"User_{uuid.uuid4().hex[:6].upper()}"  # 개인식별 최소화
+    exercise_summary = exercise.strip()
+
+    user_input = f"1. 회원정보: {member_info}\n2. 현재증상: {symptom}\n3. 예정운동: {exercise}"
+
+    with st.spinner("MAP 엔진 분석 중..."):
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_input},
+            ],
+            temperature=0.2,
+        )
+
+    raw = resp.choices[0].message.content or ""
+    type_id = detect_type(raw)
+
+    # 플레이스홀더 치환
+    filled = apply_replacements(raw, client_tag, session_hash, ts, exercise_summary)
+
+    # UX_WRAPPER는 "Type에 맞게" 앱에서 붙인다 (중복/오작동 방지)
+    final = filled + wrapper_for(type_id)
+
+    st.success("✅ MAP 결과 생성 완료")
+
+    # 전체 리포트
+    st.subheader("📋 전체 리포트 (증거용)")
+    st.markdown(final)
+
+    # 카톡 템플릿만 분리
+    kakao = extract_kakao_block(filled)
+    if kakao:
+        st.subheader("💬 카카오톡 전송 템플릿 (복사용)")
+        st.code(kakao, language="markdown")
+        st.caption("위 블록을 길게 눌러 전체 복사 → 카톡 붙여넣기")
+
+    # 내부 운영용 코드 표시 (필요 시 숨겨도 됨)
+    with st.expander("🔒 운영 메타 (센터 방어용)"):
+        st.write(f"- Client_Tag: {client_tag}")
+        st.write(f"- Session_Hash: {session_hash}")
+        st.write(f"- Timestamp: {ts}")
+        st.write(f"- Type: {type_id}")
