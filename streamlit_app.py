@@ -1,72 +1,77 @@
 import os
 import re
-import uuid
+import hashlib
 from datetime import datetime, timezone
 
 import streamlit as st
 from openai import OpenAI
 
-# -----------------------------
-# 0) 기본 설정
-# -----------------------------
-st.set_page_config(page_title="MAP SYSTEM", page_icon="🛡️", layout="centered")
+# =========================================================
+# MAP SYSTEM - Streamlit App (LITE)
+# 핵심: 법적 보호(센터/트레이너/관장) + 회원 체감(관리/관심) = "구조로"
+# =========================================================
+
+APP_TITLE = "MAP SYSTEM"
+APP_SUBTITLE = "센터 · 트레이너 · 관장을 보호하는 안전 관리 시스템"
+
+# ----------------------------
+# UI: Font / Layout (요청: 폰트 줄이기)
+# ----------------------------
+st.set_page_config(page_title=APP_TITLE, page_icon="🛡️", layout="centered")
+
 st.markdown("""
 <style>
-/* 전체 기본 폰트 크기 */
-html, body, [class*="css"] {
-    font-size: 14px;
-}
+/* 전체 폰트 다운 */
+html, body, [class*="css"] { font-size: 14px !important; }
 
-/* 제목 계층 조정 */
-h1 {
-    font-size: 22px !important;
-}
-h2 {
-    font-size: 18px !important;
-}
-h3 {
-    font-size: 16px !important;
-}
+/* 타이틀/헤더도 과하면 다운 */
+h1 { font-size: 28px !important; margin-bottom: 6px !important; }
+h2 { font-size: 20px !important; margin-top: 10px !important; }
+h3 { font-size: 16px !important; }
 
-/* 일반 텍스트 */
-p, li, span {
-    font-size: 14px !important;
-}
+/* 박스/알림 라인 높이 */
+div[data-testid="stAlert"] { padding: 10px 12px !important; }
 
-/* 경고/안내 박스 */
-div[data-testid="stAlert"] {
-    font-size: 14px !important;
+/* 카톡 텍스트 출력 박스 */
+.kakao-box {
+  font-size: 13px !important;
+  line-height: 1.55 !important;
+  background: #f7f7f9;
+  border: 1px solid #e6e6eb;
+  border-radius: 10px;
+  padding: 12px 12px;
+  white-space: normal;
 }
-
-/* 코드/복사용 블록 (카톡 템플릿) */
-pre, code {
-    font-size: 13px !important;
-}
+.small-note { font-size: 12px !important; opacity: 0.85; }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🛡️ MAP SYSTEM")
-st.caption("센터 · 트레이너 · 관장을 보호하는 안전 관리(비의료) 기록 시스템")
+# ----------------------------
+# Header
+# ----------------------------
+st.title(f"🛡️ {APP_TITLE}")
+st.subheader(APP_SUBTITLE)
 
-# -----------------------------
-# 1) OpenAI Key 로드 (Secrets 우선)
-# -----------------------------
-api_key = None
-if "OPENAI_API_KEY" in st.secrets:
-    api_key = st.secrets["OPENAI_API_KEY"]
-else:
-    api_key = os.getenv("OPENAI_API_KEY")
+st.markdown("""
+- 트레이너는 **로그인 없이 링크만**으로 사용  
+- 수업 전 **최소 입력(3개)** → **판정/기록/카톡 템플릿** 자동 생성  
+- 결과는 **기록(증거) + 일관 포맷**으로 분쟁 대응에 유리
+""")
 
-if not api_key:
-    st.error("OPENAI_API_KEY가 없습니다. Streamlit Secrets에 OPENAI_API_KEY를 저장하세요.")
+# ----------------------------
+# Secrets / Env
+# ----------------------------
+OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+
+if not OPENAI_API_KEY:
+    st.error("OPENAI_API_KEY가 설정되지 않았습니다. (Streamlit Secrets에 등록 필요)")
     st.stop()
 
-client = OpenAI(api_key=api_key)
+client = OpenAI(api_key=OPENAI_API_KEY)
 
-# -----------------------------
-# 2) 시스템 프롬프트 (사용자 제공 LITE)
-#    ※ 아래에 재권님 프롬프트를 그대로 붙여넣으면 됨
-# -----------------------------
+# ----------------------------
+# System Prompt (사용자 제공 LITE 프롬프트)
+# ----------------------------
 SYSTEM_PROMPT = r"""
 # MASTER SYSTEM: MAP_INTEGRATED_CORE_v2026 (LITE)
 # PRIORITY: Legal Safety > Operational Structure > Member Care
@@ -227,138 +232,182 @@ ELSE IF Type 5 (RATIONALE):
 ELSE: Output NOTHING.
 """
 
-# -----------------------------
-# 3) 입력 UI (트레이너용: 3칸)
-# -----------------------------
-with st.form("map_form"):
+# ----------------------------
+# Helpers
+# ----------------------------
+def now_utc_str():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+def make_session_hash(seed: str) -> str:
+    h = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:10].upper()
+    return f"MAP-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}-{h}"
+
+def detect_type(text: str) -> int:
+    t = re.sub(r"\s+", " ", text or "").strip()
+    if "🚨 [RED FLAG]" in t:
+        return 6
+    if "License Expired" in t:
+        return 4
+    if "보안 정책상 내부 로직" in t:
+        return 3
+    if "[MAP 안전 판정 데이터 입력]" in t:
+        return 1
+    if "### 1. 📋 FSL 현장 리포트" in t:
+        return 2
+    # Type 5는 엔진이 내는 문구에 따라 추가 가능
+    if ("국제 스포츠 안전 표준" in t) or ("일반 원칙" in t):
+        return 5
+    return 0
+
+def wrapper_footer(out_type: int) -> str:
+    # wrapper는 "엔진 출력 아래"에만 붙인다.
+    if out_type == 6:
+        return """
+---
+⚠️ **안내**
+이 메시지는 오류가 아닙니다.
+현재 상태에서는 운동 계획을 논의하기보다,
+**트레이너가 현장에서 다음 현장 절차를 안내하는 흐름**으로 전환됩니다.
+---
+"""
+    if out_type == 1:
+        return """
+---
+ℹ️ **안내**
+MAP 안전 판정은 운동 시작 전,
+**판단 진행 가능 여부를 확인하는 절차**입니다.
+3개 항목이 모두 입력된 경우에만 판정 출력이 생성됩니다.
+---
+"""
+    if out_type == 2:
+        return """
+---
+ℹ️ **안내**
+위 내용은 **안전 기준 분류 결과**이며,
+실제 진행 여부와 방식은 **트레이너와 현장에서 함께 결정**됩니다.
+---
+"""
+    if out_type == 5:
+        return """
+---
+ℹ️ **안내**
+MAP 엔진은 기준에 대한 일반 원칙만 제공하며,
+개별 사례에 대한 해석이나
+상세 설명은 제공하지 않습니다.
+---
+"""
+    return ""
+
+def stronger_kakao_tone(original_report: str, client_tag: str) -> str:
+    """
+    '사랑받는 느낌'을 감정조작으로 만들지 않고,
+    '확인 완료/준비 완료/변화시 즉시 조정' 같은 절차 신호로 강화.
+    - 엔진이 생성한 카톡 템플릿이 있으면 최대한 유지
+    - 없으면 안전한 기본 템플릿 생성
+    """
+    # 엔진 리포트에서 "### 3. 💬 카카오톡 전송 템플릿" 섹션을 대략 추출 시도
+    text = original_report or ""
+    m = re.search(r"###\s*3\.\s*💬\s*카카오톡 전송 템플릿\s*---(.*)", text, re.DOTALL)
+    extracted = None
+    if m:
+        extracted = m.group(1).strip()
+
+    # 공통 강화 문구(약속 X, 의학 X, 절차/관리 신호 O)
+    prefix = f"안녕하세요, {client_tag}님. MAP 트레이닝 센터입니다.\n\n오늘 컨디션 확인 완료했습니다.\n오늘은 안전 기준으로 진행 흐름을 정리해 두었습니다.\n\n📌 오늘의 진행 포인트\n: "
+    suffix = "\n\n수업 중 컨디션 변화가 있으면 그 기준으로 바로 조정해드립니다.\n(본 안내는 운동 안전 참고 자료이며 의료적 판단이 아닙니다.)"
+
+    if extracted:
+        # extracted 안에 이미 "안녕하세요"가 있으면, '확인 완료/정리' 문장만 상단에 추가
+        cleaned = re.sub(r"\n{3,}", "\n\n", extracted).strip()
+        # 너무 길면 그대로 두고 핵심 문장만 위에 붙인다.
+        return f"안녕하세요, {client_tag}님. MAP 트레이닝 센터입니다.\n\n오늘 컨디션 확인 완료했습니다.\n오늘은 안전 기준으로 진행 흐름을 정리해 두었습니다.\n\n{cleaned}"
+
+    # fallback
+    return prefix + "오늘 안내된 안전 포인트를 기준으로 진행합니다." + suffix
+
+
+# ----------------------------
+# Input Form
+# ----------------------------
+st.markdown("### 입력 (수업 전 10초)")
+with st.form("map_form", clear_on_submit=False):
     col1, col2 = st.columns(2)
     with col1:
-        member_info = st.text_input("1) 회원 정보", placeholder="예: 남/50대/과거력(익명 권장)")
+        member_info = st.text_input("1) 회원 정보(가명/비식별)", placeholder="예: 여/30대/과거력 없음")
     with col2:
-        symptom = st.text_input("2) 현재 증상", placeholder="예: 허리 통증, 무릎 불편감")
-    exercise = st.text_input("3) 예정 운동", placeholder="예: 스쿼트, 데드리프트")
+        symptom = st.text_input("2) 현재 증상(간단)", placeholder="예: 허리 통증, 무릎 뻐근함")
+
+    exercise = st.text_input("3) 예정 운동(간단)", placeholder="예: 스쿼트, 숄더프레스")
 
     submitted = st.form_submit_button("🛡️ MAP 분석 생성")
 
-# -----------------------------
-# 4) 유틸: 타입 판별 / 플레이스홀더 치환 / 카톡 영역 추출
-# -----------------------------
-def detect_type(text: str) -> int:
-    t = text.lower()
-    if "license expired" in t:
-        return 4
-    if "red flag" in t:
-        return 6
-    if "[map 안전 판정 데이터 입력]" in text:
-        return 1
-    if "security" in t and "refusal" in t:
-        return 3
-    if "generic" in t and "principle" in t:
-        return 5
-    return 2
-
-def wrapper_for(type_id: int) -> str:
-    if type_id == 6:
-        return (
-            "\n---\n⚠️ **안내**\n"
-            "이 메시지는 오류가 아닙니다.\n"
-            "현재 상태에서는 운동 계획을 논의하기보다,\n"
-            "**트레이너가 현장에서 다음 현장 절차를 안내하는 흐름**으로 전환됩니다.\n---\n"
-        )
-    if type_id == 1:
-        return (
-            "\n---\nℹ️ **안내**\n"
-            "MAP 안전 판정은 운동 시작 전,\n"
-            "**판단 진행 가능 여부를 확인하는 절차**입니다.\n"
-            "3개 항목이 모두 입력된 경우에만 판정 출력이 생성됩니다.\n---\n"
-        )
-    if type_id == 2:
-        return (
-            "\n---\nℹ️ **안내**\n"
-            "위 내용은 **안전 기준 분류 결과**이며,\n"
-            "실제 진행 여부와 방식은 **트레이너와 현장에서 함께 결정**됩니다.\n---\n"
-        )
-    if type_id == 5:
-        return (
-            "\n---\nℹ️ **안내**\n"
-            "MAP 엔진은 기준에 대한 일반 원칙만 제공하며,\n"
-            "개별 사례에 대한 해석이나 상세 설명은 제공하지 않습니다.\n---\n"
-        )
-    return ""
-
-def extract_kakao_block(text: str) -> str:
-    # "### 3. 💬 카카오톡 전송 템플릿" 이후를 우선 추출
-    m = re.search(r"###\s*3\.\s*💬\s*카카오톡 전송 템플릿\s*-{3,}\s*(.*)", text, re.DOTALL)
-    if m:
-        block = m.group(1).strip()
-        # 뒤쪽 다른 섹션이 섞이면 잘라내기
-        block = re.split(r"\n###\s*\d\.", block)[0].strip()
-        return block
-    # RED FLAG 단독이면 전체를 카톡으로 취급
-    if "red flag" in text.lower():
-        return text.strip()
-    return ""
-
-def apply_replacements(text: str, client_tag: str, session_hash: str, ts: str, exercise_summary: str) -> str:
-    out = text
-    out = out.replace("{Client_Tag}", client_tag)
-    out = out.replace("{Session_Hash}", session_hash)
-    out = out.replace("{Timestamp}", ts)
-    out = out.replace("{Exercise_Summary}", exercise_summary)
-    return out
-
-# -----------------------------
-# 5) 실행
-# -----------------------------
+# ----------------------------
+# Run
+# ----------------------------
 if submitted:
-    if not (member_info and symptom and exercise):
-        st.warning("3개 항목을 모두 입력해야 합니다.")
+    # 회원 체감 포인트: "확인 완료" 배지
+    # (단, 실제 생성 성공 후에 띄우는 게 더 정확하므로 아래에서 성공 시 출력)
+
+    if not member_info.strip() or not symptom.strip() or not exercise.strip():
+        st.warning("⚠️ 3개 항목을 모두 입력해야 판정이 생성됩니다.")
         st.stop()
 
-    # 익명화 태그 + 세션 코드 + 타임스탬프
-    now = datetime.now(timezone.utc).astimezone()  # 로컬 타임존
-    ts = now.strftime("%Y-%m-%d %H:%M:%S %Z")
-    session_hash = f"MAP-{now.strftime('%Y%m%d-%H%M')}-{uuid.uuid4().hex[:6].upper()}"
-    client_tag = f"User_{uuid.uuid4().hex[:6].upper()}"  # 개인식별 최소화
-    exercise_summary = exercise.strip()
+    timestamp = now_utc_str()
+    seed = f"{timestamp}|{member_info}|{symptom}|{exercise}"
+    session_hash = make_session_hash(seed)
 
-    user_input = f"1. 회원정보: {member_info}\n2. 현재증상: {symptom}\n3. 예정운동: {exercise}"
+    user_input = f"1. 회원 정보: {member_info}\n2. 현재 증상: {symptom}\n3. 예정 운동: {exercise}"
 
-    with st.spinner("MAP 엔진 분석 중..."):
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_input},
-            ],
-            temperature=0.2,
-        )
+    with st.spinner("MAP 엔진이 출력 생성 중..."):
+        try:
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_input}
+                ],
+                temperature=0.2
+            )
+            result = resp.choices[0].message.content or ""
+        except Exception as e:
+            st.error(f"오류: {e}")
+            st.stop()
 
-    raw = resp.choices[0].message.content or ""
-    type_id = detect_type(raw)
+    out_type = detect_type(result)
 
-    # 플레이스홀더 치환
-    filled = apply_replacements(raw, client_tag, session_hash, ts, exercise_summary)
+    # ✅ 회원/트레이너 체감 신호: 생성 완료
+    st.success("✅ 오늘 컨디션 체크 완료 · 기록 생성됨")
 
-    # UX_WRAPPER는 "Type에 맞게" 앱에서 붙인다 (중복/오작동 방지)
-    final = filled + wrapper_for(type_id)
+    # ----------------------------
+    # 출력: 엔진 결과 + wrapper(필요시)
+    # ----------------------------
+    st.markdown("### 결과")
+    st.markdown(result)
 
-    st.success("✅ MAP 결과 생성 완료")
+    footer = wrapper_footer(out_type)
+    if footer.strip():
+        st.markdown(footer)
 
-    # 전체 리포트
-    st.subheader("📋 전체 리포트 (증거용)")
-    st.markdown(final)
+    # ----------------------------
+    # 카톡 템플릿: '관심/관리 체감' 강화 버전(복사용)
+    # ----------------------------
+    st.markdown("### 3) 💬 카카오톡 전송 템플릿 (복사용)")
+    # client_tag는 개인정보 회피용으로 고정: 엔진이 별도 생성 안 하면 앱에서 임의 생성
+    client_tag = f"User_{session_hash.split('-')[-1][:6]}"
+    kakao_text = stronger_kakao_tone(result, client_tag=client_tag)
 
-    # 카톡 템플릿만 분리
-    kakao = extract_kakao_block(filled)
-    if kakao:
-        st.subheader("💬 카카오톡 전송 템플릿 (복사용)")
-        st.code(kakao, language="markdown")
-        st.caption("위 블록을 길게 눌러 전체 복사 → 카톡 붙여넣기")
+    st.markdown(f"""
+<div class="kakao-box">
+{kakao_text.replace("\n","<br>")}
+</div>
+<p class="small-note">위 박스를 길게 눌러 전체 복사 → 카톡에 붙여넣기</p>
+""", unsafe_allow_html=True)
 
-    # 내부 운영용 코드 표시 (필요 시 숨겨도 됨)
-    with st.expander("🔒 운영 메타 (센터 방어용)"):
+    # ----------------------------
+    # 운영 메타(센터 방어용) - 요청: 기본 접힘(중요)
+    # ----------------------------
+    with st.expander("🔒 운영 메타 (센터 방어용)", expanded=False):
         st.write(f"- Client_Tag: {client_tag}")
         st.write(f"- Session_Hash: {session_hash}")
-        st.write(f"- Timestamp: {ts}")
-        st.write(f"- Type: {type_id}")
+        st.write(f"- Timestamp: {timestamp}")
+        st.write(f"- Type: {out_type}")
