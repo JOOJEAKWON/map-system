@@ -102,7 +102,7 @@ Enabled for ALL statuses. Logged for evidence. Neutral tone.
 6. Valid Data → Type 2
 
 **[LICENSE]**
-Exp: 2026-02-30. If expired, output Type 4.
+Exp: 2026-02-28. If expired, output Type 4.
 
 **[LOGIC MODULES]**
 - RED FLAG: Chest/Radiating pain, Shortness of breath, Fainting, Paralysis, Speech issues, Severe headache → Type 6 IMMED.
