@@ -220,7 +220,7 @@ st.caption("사고 예방 및 안전 규격 판정 엔진 (Evidence Class: Safet
 
 # 라이선스 체크 (현재 날짜 기준)
 current_date = datetime.date.today()
-expiry_date = datetime.date(2026, 1, 17) # 프롬프트에 명시된 만료일
+expiry_date = datetime.date(2026, 2, 28) # 프롬프트에 명시된 만료일
 
 # 만료일 경고 (테스트용으로 2026년까지는 통과되도록 로직 구성, 필요시 수정 가능)
 if current_date > expiry_date:
