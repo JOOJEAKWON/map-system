@@ -4,35 +4,56 @@ import datetime
 import hashlib
 
 # --------------------------------------------------------------------------
-# [설정] 페이지 기본 디자인 및 CSS
+# [설정] 페이지 기본 디자인 및 CSS (폰트 강제 다이어트)
 # --------------------------------------------------------------------------
 st.set_page_config(page_title="MAP SYSTEM (LITE)", page_icon="🛡️")
 
-# 커스텀 CSS (카카오톡 스타일 박스 등)
+# 🚨 CSS로 Streamlit 기본 스타일 덮어쓰기 (글씨 크기 강제 축소)
 st.markdown("""
 <style>
+    /* 전체 기본 폰트 사이즈를 15px로 고정 */
+    html, body, [class*="css"] {
+        font-family: 'Pretendard', 'Malgun Gothic', sans-serif;
+        font-size: 15px !important; 
+        line-height: 1.6 !important;
+    }
+
+    /* 제목(헤더)들이 너무 커지지 않게 강제 진압 */
+    h1 { font-size: 22px !important; font-weight: bold !important; margin-bottom: 10px !important; }
+    h2 { font-size: 18px !important; font-weight: bold !important; margin-top: 20px !important; margin-bottom: 10px !important; }
+    h3 { font-size: 16px !important; font-weight: bold !important; margin-top: 15px !important; margin-bottom: 5px !important; }
+    
+    /* Markdown 본문 텍스트 크기 조절 */
+    .stMarkdown p {
+        font-size: 15px !important;
+        margin-bottom: 10px !important;
+    }
+    
+    /* 리스트(글머리 기호) 크기 조절 */
+    .stMarkdown ul, .stMarkdown ol {
+        font-size: 15px !important;
+    }
+
+    /* 🟡 카카오톡 전송 박스 스타일 (더 리얼하게) */
     .kakao-box {
         background-color: #FEE500;
-        color: #000000;
-        padding: 20px;
-        border-radius: 12px;
+        color: #191919;
+        padding: 15px;
+        border-radius: 4px;
         font-family: 'Malgun Gothic', sans-serif;
+        font-size: 14px !important; /* 카톡은 글씨가 작아야 함 */
+        line-height: 1.5 !important;
         margin-top: 10px;
-        margin-bottom: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        font-size: 14px;
-        line-height: 1.5;
+        border: 1px solid #F5DA00;
     }
-    .report-header {
-        font-weight: bold;
-        color: #333;
-        font-size: 18px;
-        margin-bottom: 5px;
-    }
-    .section-divider {
-        margin-top: 15px;
-        margin-bottom: 15px;
-        border-top: 1px solid #ddd;
+
+    /* 결과 화면 박스 테두리 */
+    .result-container {
+        border: 1px solid #e0e0e0;
+        padding: 20px;
+        border-radius: 10px;
+        background-color: #ffffff;
+        margin-top: 20px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -51,7 +72,6 @@ client = openai.OpenAI(api_key=api_key)
 # --------------------------------------------------------------------------
 # [엔진 로직] 시스템 프롬프트 (MASTER SYSTEM: MAP_INTEGRATED_CORE_v2026 LITE)
 # --------------------------------------------------------------------------
-# 재권님이 제공하신 프롬프트 원본을 그대로 적용합니다.
 SYSTEM_PROMPT = """
 # MASTER SYSTEM: MAP_INTEGRATED_CORE_v2026 (LITE)
 # PRIORITY: Legal Safety > Operational Structure > Member Care
@@ -102,7 +122,7 @@ Enabled for ALL statuses. Logged for evidence. Neutral tone.
 6. Valid Data → Type 2
 
 **[LICENSE]**
-Exp: 2026-02-28. If expired, output Type 4.
+Exp: 2026-12-31. If expired, output Type 4.
 
 **[LOGIC MODULES]**
 - RED FLAG: Chest/Radiating pain, Shortness of breath, Fainting, Paralysis, Speech issues, Severe headache → Type 6 IMMED.
@@ -220,9 +240,8 @@ st.caption("사고 예방 및 안전 규격 판정 엔진 (Evidence Class: Safet
 
 # 라이선스 체크 (현재 날짜 기준)
 current_date = datetime.date.today()
-expiry_date = datetime.date(2026, 2, 28) # 프롬프트에 명시된 만료일
+expiry_date = datetime.date(2026, 12, 31)
 
-# 만료일 경고 (테스트용으로 2026년까지는 통과되도록 로직 구성, 필요시 수정 가능)
 if current_date > expiry_date:
     st.error("⚠️ License Expired (Contact Admin).")
     st.stop()
@@ -230,11 +249,11 @@ if current_date > expiry_date:
 with st.form("map_input_form"):
     col1, col2 = st.columns(2)
     with col1:
-        member_info = st.text_input("1. 회원 정보", placeholder="예: 남/50대/디스크 과거력")
+        member_info = st.text_input("1. 회원 정보", placeholder="예: 남/50대/디스크")
     with col2:
-        symptom = st.text_input("2. 현재 증상", placeholder="예: 허리 통증, 다리 저림")
+        symptom = st.text_input("2. 현재 증상", placeholder="예: 허리 통증")
     
-    exercise = st.text_input("3. 예정 운동", placeholder="예: 데드리프트, 스쿼트")
+    exercise = st.text_input("3. 예정 운동", placeholder="예: 데드리프트")
     
     submitted = st.form_submit_button("🛡️ MAP 안전 판정 실행")
 
@@ -242,14 +261,12 @@ with st.form("map_input_form"):
 # [실행 로직]
 # --------------------------------------------------------------------------
 if submitted:
-    # 1. 입력값 검증 (Type 1 Logic)
     if not member_info or not symptom or not exercise:
         st.warning("ℹ️ [Type 1] 모든 항목을 입력해야 정확한 판정이 가능합니다.")
         st.stop()
 
     with st.spinner("MAP 엔진 분석 중..."):
         try:
-            # 타임스탬프 및 해시 생성
             now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             session_data = f"{member_info}{symptom}{exercise}{now_str}"
             session_hash = hashlib.sha256(session_data.encode()).hexdigest()[:8].upper()
@@ -269,13 +286,16 @@ if submitted:
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": user_input}
                 ],
-                temperature=0.3 # 분석의 일관성을 위해 낮춤
+                temperature=0.3
             )
             
             result_text = response.choices[0].message.content
             
-            # 결과 출력
-            st.markdown(result_text)
+            # 🟡 결과 출력 (카카오 스타일 적용)
+            
+            # 1. GPT 결과에서 카카오톡 템플릿 부분만 발라내기 위한 간단한 처리
+            # (전체 텍스트는 그대로 보여주되, div로 감싸서 스타일 적용)
+            st.markdown(f'<div class="result-container">{result_text}</div>', unsafe_allow_html=True)
 
         except Exception as e:
             st.error(f"시스템 오류 발생: {e}")
