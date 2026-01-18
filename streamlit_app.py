@@ -1,78 +1,39 @@
+import re
 import streamlit as st
-import openai
-import datetime
-import hashlib
+from openai import OpenAI
 
-# --------------------------------------------------------------------------
-# [설정] 페이지 기본 디자인 및 CSS (폰트 강제 다이어트)
-# --------------------------------------------------------------------------
-st.set_page_config(page_title="MAP SYSTEM (LITE)", page_icon="🛡️")
+# =========================
+# 0) PAGE
+# =========================
+st.set_page_config(
+    page_title="MAP SYSTEM",
+    page_icon="🛡️",
+    layout="centered",
+)
 
-# 🚨 CSS로 Streamlit 기본 스타일 덮어쓰기 (글씨 크기 강제 축소)
-st.markdown("""
-<style>
-    /* 전체 기본 폰트 사이즈를 15px로 고정 */
-    html, body, [class*="css"] {
-        font-family: 'Pretendard', 'Malgun Gothic', sans-serif;
-        font-size: 15px !important; 
-        line-height: 1.6 !important;
-    }
+st.title("🛡️ MAP SYSTEM")
+st.caption("센터·트레이너·관장을 보호하는 비의료 행정 안전 분류 시스템")
 
-    /* 제목(헤더)들이 너무 커지지 않게 강제 진압 */
-    h1 { font-size: 22px !important; font-weight: bold !important; margin-bottom: 10px !important; }
-    h2 { font-size: 18px !important; font-weight: bold !important; margin-top: 20px !important; margin-bottom: 10px !important; }
-    h3 { font-size: 16px !important; font-weight: bold !important; margin-top: 15px !important; margin-bottom: 5px !important; }
-    
-    /* Markdown 본문 텍스트 크기 조절 */
-    .stMarkdown p {
-        font-size: 15px !important;
-        margin-bottom: 10px !important;
-    }
-    
-    /* 리스트(글머리 기호) 크기 조절 */
-    .stMarkdown ul, .stMarkdown ol {
-        font-size: 15px !important;
-    }
+# =========================
+# 1) SECRETS
+# =========================
+# Streamlit Cloud > App > Settings > Secrets 에 아래처럼 넣어야 함:
+# OPENAI_API_KEY="sk-...."
+# LICENSE_EXP="2027-12-31"  # (선택) 프롬프트 만료일 자동 교체용
 
-    /* 🟡 카카오톡 전송 박스 스타일 (더 리얼하게) */
-    .kakao-box {
-        background-color: #FEE500;
-        color: #191919;
-        padding: 15px;
-        border-radius: 4px;
-        font-family: 'Malgun Gothic', sans-serif;
-        font-size: 14px !important; /* 카톡은 글씨가 작아야 함 */
-        line-height: 1.5 !important;
-        margin-top: 10px;
-        border: 1px solid #F5DA00;
-    }
+api_key = st.secrets.get("OPENAI_API_KEY", "")
+license_exp_override = st.secrets.get("LICENSE_EXP", "").strip()
 
-    /* 결과 화면 박스 테두리 */
-    .result-container {
-        border: 1px solid #e0e0e0;
-        padding: 20px;
-        border-radius: 10px;
-        background-color: #ffffff;
-        margin-top: 20px;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# --------------------------------------------------------------------------
-# [초기화] API 키 설정
-# --------------------------------------------------------------------------
-try:
-    api_key = st.secrets["OPENAI_API_KEY"]
-except:
-    st.error("🚨 API 키가 없습니다. [Secrets] 설정을 확인해주세요.")
+if not api_key:
+    st.error("OPENAI_API_KEY가 설정되지 않았습니다. (Settings → Secrets)")
     st.stop()
 
-client = openai.OpenAI(api_key=api_key)
+client = OpenAI(api_key=api_key)
 
-# --------------------------------------------------------------------------
-# [엔진 로직] 시스템 프롬프트 (MASTER SYSTEM: MAP_INTEGRATED_CORE_v2026 LITE)
-# --------------------------------------------------------------------------
-SYSTEM_PROMPT = """
+# =========================
+# 2) SYSTEM PROMPT (네가 준 내용 그대로)
+# =========================
+SYSTEM_PROMPT_RAW = r"""
 # MASTER SYSTEM: MAP_INTEGRATED_CORE_v2026 (LITE)
 # PRIORITY: Legal Safety > Operational Structure > Member Care
 
@@ -122,7 +83,7 @@ Enabled for ALL statuses. Logged for evidence. Neutral tone.
 6. Valid Data → Type 2
 
 **[LICENSE]**
-Exp: 2026-12-31. If expired, output Type 4.
+Exp: 2026-01-17. If expired, output Type 4.
 
 **[LOGIC MODULES]**
 - RED FLAG: Chest/Radiating pain, Shortness of breath, Fainting, Paralysis, Speech issues, Severe headache → Type 6 IMMED.
@@ -230,72 +191,70 @@ ELSE IF Type 5 (RATIONALE):
   개별 사례에 대한 해석이나 상세 설명은 제공하지 않습니다.
   ---
 ELSE: Output NOTHING.
-"""
+""".strip()
 
-# --------------------------------------------------------------------------
-# [화면 구성]
-# --------------------------------------------------------------------------
-st.title("🛡️ MAP SYSTEM (LITE)")
-st.caption("사고 예방 및 안전 규격 판정 엔진 (Evidence Class: Safety Log)")
+def apply_license_override(prompt: str, new_date: str) -> str:
+    """
+    프롬프트의 LICENSE Exp 날짜를 Secrets 값으로 교체.
+    (안 하면, 현재 날짜 기준 Type 4만 계속 나올 수 있음)
+    """
+    if not new_date:
+        return prompt
+    # Exp: YYYY-MM-DD 패턴 교체
+    return re.sub(r"Exp:\s*\d{4}-\d{2}-\d{2}", f"Exp: {new_date}", prompt)
 
-# 라이선스 체크 (현재 날짜 기준)
-current_date = datetime.date.today()
-expiry_date = datetime.date(2026, 12, 31)
+SYSTEM_PROMPT = apply_license_override(SYSTEM_PROMPT_RAW, license_exp_override)
 
-if current_date > expiry_date:
-    st.error("⚠️ License Expired (Contact Admin).")
-    st.stop()
-
-with st.form("map_input_form"):
+# =========================
+# 3) UI INPUT
+# =========================
+with st.form("map_form", clear_on_submit=False):
     col1, col2 = st.columns(2)
     with col1:
-        member_info = st.text_input("1. 회원 정보", placeholder="예: 남/50대/디스크")
+        member_info = st.text_input("1) 회원 정보", placeholder="예: 남/50대/과거력")
     with col2:
-        symptom = st.text_input("2. 현재 증상", placeholder="예: 허리 통증")
-    
-    exercise = st.text_input("3. 예정 운동", placeholder="예: 데드리프트")
-    
-    submitted = st.form_submit_button("🛡️ MAP 안전 판정 실행")
+        symptom = st.text_input("2) 현재 증상", placeholder="예: 허리 통증, 저림")
 
-# --------------------------------------------------------------------------
-# [실행 로직]
-# --------------------------------------------------------------------------
+    exercise = st.text_input("3) 예정 운동", placeholder="예: 데드리프트 / 스쿼트 / 벤치")
+
+    submitted = st.form_submit_button("🛡️ MAP 분석 실행")
+
+st.divider()
+
+# =========================
+# 4) RUN
+# =========================
 if submitted:
-    if not member_info or not symptom or not exercise:
-        st.warning("ℹ️ [Type 1] 모든 항목을 입력해야 정확한 판정이 가능합니다.")
+    if not (member_info and symptom and exercise):
+        st.warning("3개 항목을 모두 입력해야 판정이 생성됩니다.")
         st.stop()
 
-    with st.spinner("MAP 엔진 분석 중..."):
-        try:
-            now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            session_data = f"{member_info}{symptom}{exercise}{now_str}"
-            session_hash = hashlib.sha256(session_data.encode()).hexdigest()[:8].upper()
+    user_input = f"""[MAP INPUT]
+1. 회원 정보: {member_info}
+2. 현재 증상: {symptom}
+3. 예정 운동: {exercise}
+"""
 
-            # GPT 호출
-            user_input = f"""
-            Timestamp: {now_str}
-            Session Hash: {session_hash}
-            1. 회원 정보: {member_info}
-            2. 현재 증상: {symptom}
-            3. 예정 운동: {exercise}
-            """
-            
-            response = client.chat.completions.create(
-                model="gpt-4o",
+    with st.spinner("MAP 엔진 실행 중..."):
+        try:
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",   # 비용/속도 균형. 필요 시 gpt-4o로 변경 가능
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_input}
+                    {"role": "user", "content": user_input},
                 ],
-                temperature=0.3
+                temperature=0.2,
             )
-            
-            result_text = response.choices[0].message.content
-            
-            # 🟡 결과 출력 (카카오 스타일 적용)
-            
-            # 1. GPT 결과에서 카카오톡 템플릿 부분만 발라내기 위한 간단한 처리
-            # (전체 텍스트는 그대로 보여주되, div로 감싸서 스타일 적용)
-            st.markdown(f'<div class="result-container">{result_text}</div>', unsafe_allow_html=True)
+            result = resp.choices[0].message.content.strip()
+
+            st.success("완료")
+            st.markdown(result)
+
+            # (선택) 카톡 템플릿만 빠르게 복사하도록 안내
+            st.info("카톡으로 보낼 부분만 복사하려면, 출력에서 '카카오톡 전송 템플릿' 섹션을 길게 눌러 복사하세요.")
 
         except Exception as e:
-            st.error(f"시스템 오류 발생: {e}")
+            st.error(f"오류: {e}")
+            st.stop()
+else:
+    st.caption("입력 후 실행하면, MAP 리포트 + 카카오톡 전송 템플릿이 출력됩니다.")
