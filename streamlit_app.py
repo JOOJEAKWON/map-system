@@ -10,6 +10,41 @@ from openai import OpenAI
 # 0) 기본 설정
 # -----------------------------
 st.set_page_config(page_title="MAP SYSTEM", page_icon="🛡️", layout="centered")
+st.markdown("""
+<style>
+/* 전체 기본 폰트 크기 */
+html, body, [class*="css"] {
+    font-size: 14px;
+}
+
+/* 제목 계층 조정 */
+h1 {
+    font-size: 22px !important;
+}
+h2 {
+    font-size: 18px !important;
+}
+h3 {
+    font-size: 16px !important;
+}
+
+/* 일반 텍스트 */
+p, li, span {
+    font-size: 14px !important;
+}
+
+/* 경고/안내 박스 */
+div[data-testid="stAlert"] {
+    font-size: 14px !important;
+}
+
+/* 코드/복사용 블록 (카톡 템플릿) */
+pre, code {
+    font-size: 13px !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 st.title("🛡️ MAP SYSTEM")
 st.caption("센터 · 트레이너 · 관장을 보호하는 안전 관리(비의료) 기록 시스템")
 
