@@ -44,14 +44,13 @@ def connect_sheet():
         client = gspread.authorize(creds)
         
         # 3. 시트 열기
-        sheet = client.open("MAP_DATABASE").sheet1
-        st.toast("✅ 구글 시트 연결 성공!", icon="🟢") # 성공하면 알림 뜸
-        return sheet
-        
-    except Exception as e:
-        # 🚨 실패하면 여기에 상세 내용이 뜸! (이걸 알려주세요)
-        st.error(f"❌ 구글 시트 연결 실패 원인: {e}")
-        return None
+        sheet = get_google_sheet_connection()
+
+if sheet is None:
+    st.error("❌ DEBUG: 구글 시트 연결 실패 (sheet is None)")
+else:
+    st.success("✅ DEBUG: 구글 시트 연결 성공")
+    st.write("Sheet object:", sheet)
 
 # -----------------------------------------------------------------------------
 # 3. OpenAI 연결
@@ -182,5 +181,6 @@ with tab2:
                 staff
             ])
         st.success("기록이 저장되었습니다.")
+
 
 
