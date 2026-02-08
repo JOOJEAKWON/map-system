@@ -39,25 +39,27 @@ def connect_sheet():
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive"
     ]
+
     try:
-        # 금고 확인
         if "gcp_service_account" not in st.secrets:
-            st.error("❌ Secrets 설정이 비어있습니다.")
+            st.error("Secrets에 gcp_service_account가 없습니다.")
             return None
 
-        # 연결 시도
         creds = ServiceAccountCredentials.from_json_keyfile_dict(
             dict(st.secrets["gcp_service_account"]),
             scope
         )
-        client = gspread.authorize(creds)
-        sheet = client.open("MAP_DATABASE").sheet1
-        return sheet
-    except Exception as e:
-        st.error(f"❌ 구글 시트 연결 실패: {e}")
-        return None
 
-sheet = connect_sheet()
+        client = gspread.authorize(creds)
+
+        # ✅ 여기서 바로 시트를 연다
+        sheet = client.open("MAP_DATABASE").sheet1
+        st.success("구글 시트 연결 성공")
+        return sheet
+
+    except Exception as e:
+        st.error(f"구글 시트 연결 실패: {e}")
+        return None
 
 # -----------------------------------------------------------------------------
 # 4. OpenAI 연결
@@ -152,5 +154,6 @@ with tab2:
             st.success(f"✅ [{task}] 기록이 저장되었습니다. (시간: {get_korea_timestamp()})")
         else:
             st.error("데이터베이스 연결 실패. 기록이 저장되지 않았습니다.")
+
 
 
