@@ -3,170 +3,160 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 import openai
+import json
 
 # -----------------------------------------------------------------------------
 # 1. 시스템 설정
 # -----------------------------------------------------------------------------
-st.set_page_config(
-    page_title="MAP INTEGRATED SYSTEM",
-    page_icon="🛡️",
-    layout="wide"
-)
+st.set_page_config(page_title="MAP INTEGRATED SYSTEM", page_icon="🛡️", layout="wide")
 
 st.markdown("""
 <style>
 .main {background-color: #0E1117;}
-.result-go {background:#1f7a1f; padding:12px; border-radius:6px; color:white;}
-.result-mod {background:#7a5c00; padding:12px; border-radius:6px; color:white;}
-.result-stop {background:#7a1f1f; padding:12px; border-radius:6px; color:white;}
+.result-go {background:#1f7a1f; padding:15px; border-radius:10px; color:white; font-weight:bold;}
+.result-mod {background:#d48806; padding:15px; border-radius:10px; color:white; font-weight:bold;}
+.result-stop {background:#cf1322; padding:15px; border-radius:10px; color:white; font-weight:bold;}
+.status-box {padding: 10px; border-radius: 5px; margin-bottom: 20px;}
 </style>
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 2. 한국 시간 계산 (KST)
+# 2. 한국 시간 (KST)
 # -----------------------------------------------------------------------------
 def get_korea_timestamp():
     return (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
 
 # -----------------------------------------------------------------------------
-# 3. Google Sheet 연결
-# -----------------------------------------------------------------------------
-def connect_sheet():
-    scope = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive"
-    ]
-    try:
-        if "gcp_service_account" not in st.secrets:
-            st.error("Secrets에 gcp_service_account가 없습니다.")
-            return None
-
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(
-            dict(st.secrets["gcp_service_account"]),
-            scope
-        )
-        client = gspread.authorize(creds)
-
-        sheet = client.open("MAP_DATABASE").sheet1
-        st.success("구글 시트 연결 성공")
-        return sheet
-
-    except Exception as e:
-        st.error(f"구글 시트 연결 실패: {e}")
-        return None
-        
-# ⭐⭐⭐ 실제 연결 실행 (가장 중요)
-sheet = connect_sheet()
-
-# -----------------------------------------------------------------------------
-# 4. OpenAI 연결 (이름 충돌 방지)
-# -----------------------------------------------------------------------------
-try:
-    ai_client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-except:
-    ai_client = None
-
-# -----------------------------------------------------------------------------
-# 5. UI
+# 3. 연결 상태 진단 (여기가 핵심!)
 # -----------------------------------------------------------------------------
 st.title("🛡️ MAP INTEGRATED SYSTEM")
-st.markdown(f"시스템 시간 (KST): {get_korea_timestamp()}")
+st.write(f"🕒 시스템 시간 (KST): **{get_korea_timestamp()}**")
 
-if sheet:
-    st.success("데이터베이스 상태: ONLINE")
-else:
-    st.warning("데이터베이스 상태: OFFLINE (시트 공유 확인 필요)")
+# [1] 구글 시트 연결 시도
+try:
+    if "gcp_service_account" in st.secrets:
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets["gcp_service_account"]), scope)
+        client = gspread.authorize(creds)
+        sheet = client.open("MAP_DATABASE").sheet1
+        st.success("✅ 구글 데이터베이스 연결 성공 (Online)")
+    else:
+        sheet = None
+        st.error("❌ 구글 시트 키가 Secrets에 없습니다. [gcp_service_account] 확인 필요")
+except Exception as e:
+    sheet = None
+    st.error(f"❌ 구글 시트 연결 에러: {e}")
 
-tab1, tab2 = st.tabs(["PT 사전 안전 분류", "시설 관리 로그"])
+# [2] OpenAI 연결 시도
+try:
+    if "OPENAI_API_KEY" in st.secrets:
+        ai_client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+        st.success("✅ AI 엔진(OpenAI) 가동 성공 (Ready)")
+    else:
+        ai_client = None
+        st.error("❌ OpenAI API 키가 없습니다. Secrets에 [OPENAI_API_KEY]를 넣어주세요.")
+except Exception as e:
+    ai_client = None
+    st.error(f"❌ AI 연결 에러: {e}")
 
-# =============================================================================
-# [TAB 1] PT 사전 안전 분류
-# =============================================================================
+st.markdown("---")
+
+# -----------------------------------------------------------------------------
+# 4. 메인 기능 탭
+# -----------------------------------------------------------------------------
+tab1, tab2 = st.tabs(["🧬 PT 안전 분류 (AI)", "🏢 시설 관리 로그"])
+
+# === [TAB 1] PT 안전 분류 ===
 with tab1:
-    st.subheader("PT 수업 전 안전 분류")
-
+    st.subheader("📋 PT 수업 전 리스크 분석")
+    
     with st.form("pt_form"):
-        member_info = st.text_input("회원 정보", placeholder="예: 50대 남성, 허리디스크")
-        symptom = st.text_input("현재 상태", placeholder="예: 무릎 통증")
-        exercise = st.text_input("예정 운동", placeholder="예: 스쿼트")
-        submit = st.form_submit_button("분류 실행")
+        col1, col2 = st.columns(2)
+        with col1:
+            member_info = st.text_input("회원 정보", placeholder="예: 50대 남성, 척추관협착증")
+            symptom = st.text_input("현재 통증/컨디션", placeholder="예: 오늘 허리 뻐근함 호소")
+        with col2:
+            exercise = st.text_input("수행 예정 운동", placeholder="예: 컨벤셔널 데드리프트")
+            
+        submit = st.form_submit_button("⚡ AI 분석 실행")
 
-    if submit and ai_client:
-        system_prompt = """
-ROLE: Non-medical Safety Classification System
-RULE:
-- Direct pain + same joint exercise → STOP
-- Indirect conflict → MODIFICATION
-- No conflict → GO
-OUTPUT:
-First word must be STOP / MODIFICATION / GO
-"""
-
-        user_input = f"""
-Member: {member_info}
-Symptom: {symptom}
-Exercise: {exercise}
-"""
-
-        with st.spinner("AI 분석 중..."):
-            response = ai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_input}
-                ]
-            )
-
-            result = response.choices[0].message.content.strip()
-            decision = result.split()[0].upper()
-
-            if decision == "STOP":
-                st.markdown(f"<div class='result-stop'>{result}</div>", unsafe_allow_html=True)
-            elif decision == "MODIFICATION":
-                st.markdown(f"<div class='result-mod'>{result}</div>", unsafe_allow_html=True)
-            else:
-                st.markdown(f"<div class='result-go'>{result}</div>", unsafe_allow_html=True)
-
-            # 로그 저장
-            if sheet:
-                sheet.append_row([
-                    get_korea_timestamp(),
-                    "PT_CHECK",
-                    member_info,
-                    symptom,
-                    exercise,
-                    decision
-                ])
-                st.toast("PT 로그가 구글 시트에 저장되었습니다.")
-
-# =============================================================================
-# [TAB 2] 시설 관리 로그
-# =============================================================================
-with tab2:
-    st.subheader("시설 관리 기록")
-
-    with st.form("facility_form"):
-        task = st.selectbox("작업 유형", ["정기 순찰", "안전 교육", "기구 정비"])
-        location = st.selectbox("구역", ["유산소존", "머신존", "프리웨이트존", "탈의실/샤워실"])
-        action = st.text_input("조치 내용", placeholder="이상 없음")
-        staff = st.text_input("점검자 이름")
-        save = st.form_submit_button("기록 저장")
-
-    if save:
-        if sheet:
-            sheet.append_row([
-                get_korea_timestamp(),
-                "FACILITY_LOG",
-                task,
-                location,
-                action,
-                staff
-            ])
-            st.success("시설 로그가 구글 시트에 저장되었습니다.")
+    # 버튼을 눌렀을 때 로직
+    if submit:
+        # 1. AI가 연결 안 되어 있으면 경고
+        if not ai_client:
+            st.error("🚨 AI가 연결되지 않아 분석할 수 없습니다. 위쪽 에러 메시지를 확인하세요.")
+        
+        # 2. 내용이 비어있으면 경고
+        elif not member_info or not exercise:
+            st.warning("⚠️ 회원 정보와 운동 종목을 입력해주세요.")
+            
+        # 3. 정상 실행
         else:
-            st.error("시트 연결 실패로 저장되지 않았습니다.")
-st.write("DEBUG sheet =", sheet)
-st.write("DEBUG sheet type =", type(sheet))
+            with st.spinner("🧠 Singularity AI가 생체역학 데이터를 분석 중입니다..."):
+                try:
+                    system_prompt = """
+                    You are a strict biomechanics safety officer.
+                    Based on the member's condition and the exercise, classify the risk.
+                    
+                    RULES:
+                    1. Direct conflict (e.g., Back pain + Deadlift) -> STOP
+                    2. Indirect/Potential risk -> MODIFICATION
+                    3. No risk -> GO
+                    
+                    OUTPUT FORMAT:
+                    Start immediately with one word: STOP, MODIFICATION, or GO.
+                    Then add a line break and explain why in Korean.
+                    """
+                    
+                    user_input = f"Member: {member_info}, Condition: {symptom}, Exercise: {exercise}"
+                    
+                    response = ai_client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_input}
+                        ]
+                    )
+                    
+                    full_result = response.choices[0].message.content.strip()
+                    
+                    # 결과 디자인 출력
+                    if full_result.startswith("STOP"):
+                        st.markdown(f"<div class='result-stop'>⛔ {full_result}</div>", unsafe_allow_html=True)
+                        decision = "STOP"
+                    elif full_result.startswith("MODIFICATION"):
+                        st.markdown(f"<div class='result-mod'>⚠️ {full_result}</div>", unsafe_allow_html=True)
+                        decision = "MODIFICATION"
+                    else:
+                        st.markdown(f"<div class='result-go'>✅ {full_result}</div>", unsafe_allow_html=True)
+                        decision = "GO"
+                    
+                    # 시트 저장
+                    if sheet:
+                        sheet.append_row([get_korea_timestamp(), "PT_AI_CHECK", member_info, symptom, exercise, decision])
+                        st.toast("💾 구글 시트에 기록되었습니다.")
+                    else:
+                        st.warning("분석은 됐지만, 구글 시트 연결이 안 되어 저장은 실패했습니다.")
+                        
+                except Exception as e:
+                    st.error(f"분석 중 오류 발생: {e}")
 
-
-
+# === [TAB 2] 시설 관리 ===
+with tab2:
+    st.subheader("🛠️ 시설 안전 점검")
+    with st.form("facility_form"):
+        task = st.selectbox("점검 유형", ["오픈조 점검", "마감조 점검", "기구 정비", "청소"])
+        location = st.selectbox("구역", ["웨이트존", "유산소존", "탈의실", "프리웨이트"])
+        memo = st.text_input("특이사항 (없으면 '이상무')", "이상 없음")
+        staff_name = st.text_input("점검자 서명")
+        
+        save_btn = st.form_submit_button("📝 기록 저장")
+        
+    if save_btn:
+        if sheet and staff_name:
+            sheet.append_row([get_korea_timestamp(), "FACILITY", task, location, memo, staff_name])
+            st.success(f"✅ [{task}] 기록이 서버에 저장되었습니다.")
+        elif not sheet:
+            st.error("🚨 구글 시트 연결이 끊겨 있습니다.")
+        elif not staff_name:
+            st.warning("점검자 이름을 입력하세요.")
