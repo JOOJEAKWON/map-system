@@ -165,5 +165,8 @@ with tab2:
             st.success("시설 로그가 구글 시트에 저장되었습니다.")
         else:
             st.error("시트 연결 실패로 저장되지 않았습니다.")
+st.write("DEBUG sheet =", sheet)
+st.write("DEBUG sheet type =", type(sheet))
+
 
 
