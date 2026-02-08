@@ -26,31 +26,33 @@ st.markdown("""
 # 2. Google Sheet 연결 (로그 저장)
 # -----------------------------------------------------------------------------
 def connect_sheet():
+    def get_google_sheet_connection():
     scope = [
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive"
     ]
+
     try:
-        # 1. 금고 확인
         if "gcp_service_account" not in st.secrets:
-            st.error("❌ 에러: Secrets에 [gcp_service_account]가 없습니다.")
+            st.error("Secrets에 gcp_service_account가 없습니다.")
             return None
 
-        # 2. 인증 시도
         creds = ServiceAccountCredentials.from_json_keyfile_dict(
             dict(st.secrets["gcp_service_account"]),
             scope
         )
-        client = gspread.authorize(creds)
-        
-        # 3. 시트 열기
-        sheet = get_google_sheet_connection()
 
-if sheet is None:
-    st.error("❌ DEBUG: 구글 시트 연결 실패 (sheet is None)")
-else:
-    st.success("✅ DEBUG: 구글 시트 연결 성공")
-    st.write("Sheet object:", sheet)
+        client = gspread.authorize(creds)
+
+        # ✅ 여기서 바로 시트를 연다
+        sheet = client.open("MAP_DATABASE").sheet1
+        st.success("구글 시트 연결 성공")
+        return sheet
+
+    except Exception as e:
+        st.error(f"구글 시트 연결 실패: {e}")
+        return None
+
 
 # -----------------------------------------------------------------------------
 # 3. OpenAI 연결
@@ -181,6 +183,7 @@ with tab2:
                 staff
             ])
         st.success("기록이 저장되었습니다.")
+
 
 
 
