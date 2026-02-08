@@ -39,7 +39,13 @@ try:
         creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets["gcp_service_account"]), scope)
         client = gspread.authorize(creds)
         sheet = client.open("MAP_DATABASE").sheet1
+        # [수정된 코드] 시트 연결 및 주소 확인
+        doc = client.open("MAP_DATABASE") # 파일 전체를 엽니다
+        sheet = doc.sheet1 # 첫 번째 탭을 가져옵니다
+        
+        # 화면에 "진짜 파일 주소"를 링크로 띄워줍니다 (여기를 클릭해보세요!)
         st.success("✅ 구글 데이터베이스 연결 성공 (Online)")
+        st.markdown(f"### 👉 [여기를 클릭해서 데이터가 쌓이는 엑셀 파일 열기](https://docs.google.com/spreadsheets/d/{doc.id})")
     else:
         sheet = None
         st.error("❌ 구글 시트 키가 Secrets에 없습니다. [gcp_service_account] 확인 필요")
@@ -160,3 +166,4 @@ with tab2:
             st.error("🚨 구글 시트 연결이 끊겨 있습니다.")
         elif not staff_name:
             st.warning("점검자 이름을 입력하세요.")
+
