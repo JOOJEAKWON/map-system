@@ -54,6 +54,7 @@ def connect_sheet():
     except Exception as e:
         st.error(f"구글 시트 연결 실패: {e}")
         return None
+st.write("DEBUG sheet type:", type(sheet))
 
 # ⭐⭐⭐ 실제 연결 실행 (가장 중요)
 sheet = connect_sheet()
@@ -165,3 +166,4 @@ with tab2:
             st.success("시설 로그가 구글 시트에 저장되었습니다.")
         else:
             st.error("시트 연결 실패로 저장되지 않았습니다.")
+
