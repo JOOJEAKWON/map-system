@@ -26,8 +26,6 @@ st.markdown("""
 # 2. Google Sheet 연결 (로그 저장)
 # -----------------------------------------------------------------------------
 def connect_sheet():
-   # [수정된 연결 함수: 에러가 나면 화면에 빨간색으로 띄웁니다]
-def connect_sheet():
     scope = [
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive"
@@ -184,4 +182,5 @@ with tab2:
                 staff
             ])
         st.success("기록이 저장되었습니다.")
+
 
