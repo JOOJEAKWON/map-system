@@ -3,6 +3,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 import openai
+import requests # 카톡 전송을 위한 부품
 
 # -----------------------------------------------------------------------------
 # 1. 시스템 설정 & 스타일
@@ -13,17 +14,15 @@ st.markdown("""
 <style>
     .main {background-color: #0E1117;}
     .status-badge {padding: 5px 10px; border-radius: 5px; font-weight: bold; color: white;}
-    .status-ok {background-color: #1f7a1f;}
-    .status-err {background-color: #cf1322;}
     .result-box {padding: 15px; border-radius: 10px; margin: 10px 0; font-weight: bold; color: white;}
-    .res-stop {background: #cf1322;}
+    .res-stop {background: #cf1322;} 
     .res-mod {background: #d48806;}
     .res-go {background: #1f7a1f;}
 </style>
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 2. 핵심 함수 (시간, DB 연결)
+# 2. 핵심 함수 (시간, DB, 카톡)
 # -----------------------------------------------------------------------------
 def get_korea_timestamp():
     return (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
@@ -31,27 +30,38 @@ def get_korea_timestamp():
 def connect_db():
     try:
         if "gcp_service_account" not in st.secrets:
-            return None, "Secrets에 gcp_service_account가 없습니다."
-
-        scope = [
-            "https://spreadsheets.google.com/feeds",
-            "https://www.googleapis.com/auth/drive",
-        ]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(
-            dict(st.secrets["gcp_service_account"]),
-            scope
-        )
-        gc = gspread.authorize(creds)
-
-        doc = gc.open("MAP_DATABASE")
-        sheet = doc.sheet1  # 필요하면 worksheet("LOG")로 변경 권장
-        return sheet, f"연결 성공 (탭: {sheet.title})"
-
+            return None, "❌ Secrets 설정 누락"
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets["gcp_service_account"]), scope)
+        client = gspread.authorize(creds)
+        doc = client.open("MAP_DATABASE")
+        sheet = doc.sheet1 
+        return sheet, f"✅ 연결 성공"
     except Exception as e:
-        return None, f"연결 실패: {e}"
+        return None, f"❌ 연결 실패: {str(e)}"
+
+# [추가됨] 카카오톡 전송 함수
+def send_kakao_message(text):
+    try:
+        if "KAKAO_TOKEN" not in st.secrets:
+            return False, "토큰 없음"
+        
+        url = "https://kapi.kakao.com/v2/api/talk/memo/default/send"
+        headers = {"Authorization": "Bearer " + st.secrets["KAKAO_TOKEN"]}
+        data = {"template_object": str({
+            "object_type": "text",
+            "text": text,
+            "link": {"web_url": "https://streamlit.io"}
+        })}
+        response = requests.post(url, headers=headers, data=data)
+        if response.status_code == 200:
+            return True, "전송 성공"
+        else:
+            return False, f"전송 실패({response.status_code})"
+    except Exception as e:
+        return False, str(e)
 
 def safe_append_row(sheet, row):
-    """쓰기 실패를 화면에 확실히 보여주기 위한 래퍼"""
     try:
         sheet.append_row(row, value_input_option="USER_ENTERED")
         return True, None
@@ -59,167 +69,108 @@ def safe_append_row(sheet, row):
         return False, str(e)
 
 # -----------------------------------------------------------------------------
-# 3. 사이드바 (진단)
+# 3. 사이드바 (상태창)
 # -----------------------------------------------------------------------------
-st.sidebar.title("관리자 진단 도구")
-
+st.sidebar.title("🔧 관리자 패널")
 sheet, db_msg = connect_db()
+
 if sheet:
     st.sidebar.success(db_msg)
 else:
     st.sidebar.error(db_msg)
 
-if st.sidebar.button("DB 쓰기 테스트 (Debug)"):
-    if sheet:
-        ok, err = safe_append_row(sheet, [
-            get_korea_timestamp(),
-            "DEBUG_TEST",
-            "시스템 점검",
-            "쓰기 권한 확인",
-            "OK",
-            "관리자"
-        ])
-        if ok:
-            st.sidebar.success("쓰기 성공 (권한 정상)")
-        else:
-            st.sidebar.error(f"쓰기 실패: {err}")
-    else:
-        st.sidebar.error("DB 연결부터 확인하세요.")
+# 카톡 상태 확인
+if "KAKAO_TOKEN" in st.secrets:
+    st.sidebar.success("✅ 카카오톡 모듈 장착됨")
+else:
+    st.sidebar.warning("⚠️ 카톡 토큰 없음 (전송 안됨)")
 
-# OpenAI
-if "OPENAI_API_KEY" in st.secrets and st.secrets["OPENAI_API_KEY"]:
+if st.sidebar.button("DB 쓰기 테스트"):
+    if sheet:
+        sheet.append_row([get_korea_timestamp(), "DEBUG", "TEST", "OK"])
+        st.sidebar.success("쓰기 성공")
+
+if "OPENAI_API_KEY" in st.secrets:
     ai_client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-    st.sidebar.success("AI 엔진 Ready")
 else:
     ai_client = None
-    st.sidebar.warning("OpenAI 키 없음")
 
 # -----------------------------------------------------------------------------
-# 4. 메인
+# 4. 메인 기능
 # -----------------------------------------------------------------------------
-st.title("MAP INTEGRATED SYSTEM")
-st.write(f"Time (KST): {get_korea_timestamp()}")
+st.title("🛡️ MAP INTEGRATED SYSTEM")
+st.write(f"🕒 Time (KST): {get_korea_timestamp()}")
 
-tab1, tab2 = st.tabs(["PT 안전 분류", "시설 관리 로그"])
+tab1, tab2 = st.tabs(["🧬 PT 안전 분류", "🏢 시설 관리 로그"])
 
-# -----------------------------------------------------------------------------
-# TAB 1: PT 안전 분류
-# -----------------------------------------------------------------------------
+# === [TAB 1] PT 안전 분류 ===
 with tab1:
-    st.subheader("PT 수업 전 행정적 안전 분류")
-    st.caption("본 시스템은 의료 진단이 아니며, 보수적 안전 분류를 위한 기록 도구입니다.")
-
+    st.subheader("📋 PT 수업 전 행정적 안전 분류")
     with st.form("pt_form"):
         c1, c2 = st.columns(2)
         with c1:
-            member = st.text_input("회원 정보", placeholder="예: 50대 남성, 허리디스크 과거력")
-            symptom = st.text_input("현재 컨디션/증상", placeholder="예: 오늘 허리 뻐근함")
+            member = st.text_input("회원 정보", placeholder="50대 남성, 허리디스크")
+            symptom = st.text_input("현재 상태", placeholder="오늘 허리 통증")
         with c2:
-            exercise = st.text_input("수행 예정 운동", placeholder="예: 데드리프트")
-
-        btn = st.form_submit_button("리스크 분석")
+            exercise = st.text_input("예정 운동", placeholder="데드리프트")
+            
+        # 카톡 전송 여부 체크박스
+        send_k = st.checkbox("결과를 카톡으로도 전송하기", value=True)
+        btn = st.form_submit_button("⚡ 리스크 분석")
 
     if btn:
-        if not ai_client:
-            st.error("AI 엔진이 연결되지 않았습니다(OPENAI_API_KEY 확인).")
-        elif not sheet:
-            st.error("DB가 연결되지 않았습니다(gcp_service_account / 시트 공유 확인).")
-        elif not (member and symptom and exercise):
-            st.warning("입력 3개 항목을 모두 채워주세요.")
-        else:
-            with st.spinner("MAP 기준으로 분류 중..."):
-                prompt = f"""
-Role: Safety Administration Officer for a Gym (NOT a Doctor).
-Tone: Dry, administrative, conservative.
-Task: Categorize risk for the following session.
-
-Input:
-- Member: {member}
-- Symptom/Condition: {symptom}
-- Planned Exercise: {exercise}
-
-Rules:
-- STOP: direct conflict with pain area / high aggravation likelihood
-- MODIFICATION: partial conflict / reduce load, change pattern
-- GO: no apparent conflict
-
-Output requirements:
-1) First line must be exactly one of: STOP / MODIFICATION / GO
-2) Second line: short dry reason (Korean, 1 sentence)
-No medical advice. No motivation. No long explanations.
-"""
+        if ai_client and sheet:
+            with st.spinner("분석 중..."):
                 try:
-                    response = ai_client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[{"role": "user", "content": prompt}],
-                        temperature=0.2,
-                    )
-                    res = (response.choices[0].message.content or "").strip()
-
-                    first = (res.splitlines()[0].strip().upper() if res else "")
-                    if first not in ["STOP", "MODIFICATION", "GO"]:
-                        # 안전장치: 모델이 형식 어기면 MODIFICATION으로 강등
-                        first = "MODIFICATION"
-
-                    if first == "STOP":
-                        st.markdown(f"<div class='result-box res-stop'>{res}</div>", unsafe_allow_html=True)
-                    elif first == "MODIFICATION":
-                        st.markdown(f"<div class='result-box res-mod'>{res}</div>", unsafe_allow_html=True)
-                    else:
-                        st.markdown(f"<div class='result-box res-go'>{res}</div>", unsafe_allow_html=True)
-
-                    # 저장: decision + 원문(res) 일부를 같이 보관
-                    ok, err = safe_append_row(sheet, [
-                        get_korea_timestamp(),
-                        "PT_SAFETY",
-                        member,
-                        symptom,
-                        exercise,
-                        first,
-                        res[:300]  # 시트 칼럼 여유 있으면 늘려도 됨
-                    ])
+                    prompt = f"""
+                    Role: Safety Administration Officer (Conservative).
+                    Task: Risk categorize strictly (STOP/MODIFICATION/GO).
+                    Input: Member '{member}', Symptom '{symptom}', Exercise '{exercise}'.
+                    Output: 1st line decision, 2nd line short reason (Korean).
+                    """
+                    res = ai_client.chat.completions.create(
+                        model="gpt-4o", messages=[{"role": "user", "content": prompt}]
+                    ).choices[0].message.content
+                    
+                    # 결과 표시
+                    if "STOP" in res: st.markdown(f"<div class='result-box res-stop'>⛔ {res}</div>", unsafe_allow_html=True)
+                    elif "MODIFICATION" in res: st.markdown(f"<div class='result-box res-mod'>⚠️ {res}</div>", unsafe_allow_html=True)
+                    else: st.markdown(f"<div class='result-box res-go'>✅ {res}</div>", unsafe_allow_html=True)
+                    
+                    # 저장
+                    ok, _ = safe_append_row(sheet, [get_korea_timestamp(), "PT_SAFETY", member, symptom, exercise, res])
                     if ok:
-                        st.success("PT 로그 저장 완료")
-                    else:
-                        st.error(f"PT 로그 저장 실패: {err}")
+                        st.success("💾 구글 시트 저장 완료")
+                        # 카톡 전송 로직
+                        if send_k:
+                            msg = f"[MAP 알림]\n{get_korea_timestamp()}\n회원: {member}\n결과: {res}"
+                            k_ok, k_msg = send_kakao_message(msg)
+                            if k_ok: st.toast("💬 카톡 전송 완료!")
+                            else: st.warning(f"카톡 실패: {k_msg}")
+                    
+                except Exception as e: st.error(f"에러: {e}")
 
-                except Exception as e:
-                    st.error(f"AI 호출 오류: {e}")
-
-# -----------------------------------------------------------------------------
-# TAB 2: 시설 관리 로그
-# -----------------------------------------------------------------------------
+# === [TAB 2] 시설 관리 ===
 with tab2:
-    st.subheader("시설 안전 관리 로그")
-    st.caption("사고 발생 시 관리 의무 이행을 입증하기 위한 건조 기록입니다.")
-
-    with st.form("facility_form"):
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            task = st.selectbox("작업 유형", ["정기 순찰", "안전 교육(OT)", "기구 정비"])
-        with c2:
-            location = st.selectbox("구역", ["유산소존", "머신존", "프리웨이트존", "탈의실/샤워실"])
-        with c3:
-            staff = st.text_input("점검자 실명", placeholder="예: 홍길동")
-
-        action = st.text_input("조치/특이사항", placeholder="예: 이상 없음 / 바닥 물기 제거 / 3번 머신 사용중지 안내")
+    st.subheader("🛠️ 시설 안전 점검 로그")
+    with st.form("fac_form"):
+        task = st.selectbox("점검 유형", ["오픈조 순찰", "마감조 순찰", "기구 정비"])
+        place = st.selectbox("구역", ["웨이트존", "유산소존", "샤워실"])
+        memo = st.text_input("특이사항", "이상 없음")
+        staff = st.text_input("점검자")
+        
+        # 카톡 전송 여부 체크박스
+        send_k_fac = st.checkbox("점검 완료 사실을 카톡으로 보고", value=True)
         save = st.form_submit_button("로그 저장")
 
     if save:
-        if not sheet:
-            st.error("DB가 연결되지 않았습니다.")
-        elif not staff:
-            st.warning("점검자 실명을 입력해주세요.")
-        else:
-            ok, err = safe_append_row(sheet, [
-                get_korea_timestamp(),
-                "FACILITY_LOG",
-                task,
-                location,
-                action,
-                staff
-            ])
+        if sheet:
+            ok, err = safe_append_row(sheet, [get_korea_timestamp(), "FACILITY", task, place, memo, staff])
             if ok:
-                st.success("시설 로그 저장 완료")
-            else:
-                st.error(f"시설 로그 저장 실패: {err}")
+                st.success(f"✅ [{task}] 저장 완료")
+                if send_k_fac:
+                    msg = f"[시설 점검 보고]\n시간: {get_korea_timestamp()}\n점검자: {staff}\n유형: {task}\n특이사항: {memo}"
+                    k_ok, k_msg = send_kakao_message(msg)
+                    if k_ok: st.toast("💬 지점장님께 카톡 보고 완료!")
+                    else: st.warning(f"카톡 전송 실패: {k_msg}")
+            else: st.error(f"저장 실패: {err}")
