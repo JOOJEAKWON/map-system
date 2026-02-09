@@ -32,12 +32,12 @@ st.markdown("""
         font-weight: 700;
     }
 
-    /* 상태별 배경색 (너무 어둡지 않게 조정) */
+    /* 상태별 배경색 */
     .res-stop {background-color: #2d1212; border-left: 6px solid #ff4b4b;} 
     .res-mod {background-color: #2d240b; border-left: 6px solid #ffa425;}
     .res-go {background-color: #0f2615; border-left: 6px solid #00cc44;}
 
-    /* 카카오톡 템플릿 영역 강조 */
+    /* 카카오톡 템플릿 영역 */
     .kakao-area {
         background-color: #383838;
         padding: 15px;
@@ -56,9 +56,11 @@ def get_korea_timestamp():
 
 def extract_kakao_message(full_text):
     try:
+        # 정규식으로 카톡 템플릿 부분만 추출
         match = re.search(r"3\. 💬 카카오톡 전송 템플릿\s*-+\s*(.*?)\s*-+", full_text, re.DOTALL)
         if match: return match.group(1).strip()
-        return "카톡 메시지 자동 생성 실패 (원문 참조)"
+        # 실패 시 전체 텍스트 중 일부 반환
+        return full_text[:100]
     except: return full_text[:100]
 
 def connect_db():
@@ -100,7 +102,7 @@ else:
     ai_client = None
 
 # -----------------------------------------------------------------------------
-# 4. 프롬프트 (CORE v2026)
+# 4. 프롬프트 (CORE v2026 - 절대 잘리지 않게 전체 복사하세요!)
 # -----------------------------------------------------------------------------
 MAP_CORE_PROMPT = """
 # MASTER SYSTEM: MAP_INTEGRATED_CORE_v2026 (LITE)
@@ -146,3 +148,104 @@ You MUST output the response in the following structured sections using Markdown
 ### 3. 💬 카카오톡 전송 템플릿
 ---
 안녕하세요, {Client_Tag}님.
+**MAP 트레이닝 센터**입니다.
+
+오늘 컨디션(증상 요약)을 고려하여, 안전을 최우선으로 한 맞춤 가이드를 준비했습니다.
+
+📌 **오늘의 운동 포인트**
+: (Write a polite, safe guideline sentence here based on the decision)
+
+현장에서 트레이너와 함께 안전하게 진행해요! 💪
+(본 안내는 운동 안전 참고 자료이며 의료적 판단이 아닙니다.)
+---
+"""
+
+# -----------------------------------------------------------------------------
+# 5. 메인 UI (여기까지 다 복사해야 합니다!)
+# -----------------------------------------------------------------------------
+st.title("🛡️ MAP INTEGRATED SYSTEM")
+st.caption("CORE v2026 | Governance Engine Active")
+st.write(f"🕒 Time (KST): {get_korea_timestamp()}")
+
+tab1, tab2 = st.tabs(["🧬 PT 안전 분류 (Safety)", "🏢 시설 관리 로그"])
+
+# === [TAB 1] PT 안전 분류 ===
+with tab1:
+    with st.form("pt_form"):
+        c1, c2 = st.columns(2)
+        with c1:
+            member = st.text_input("회원 정보", placeholder="예: 50대 남성, 허리디스크")
+            symptom = st.text_input("현재 상태", placeholder="예: 오늘 허리 통증")
+        with c2:
+            exercise = st.text_input("예정 운동", placeholder="예: 데드리프트")
+            
+        send_k = st.checkbox("결과를 카톡으로 전송", value=True)
+        btn = st.form_submit_button("⚡ CORE 엔진 분석 실행")
+
+    if btn:
+        if ai_client and sheet:
+            with st.spinner("⚖️ MAP CORE v2026 엔진이 프로토콜을 분석 중입니다..."):
+                try:
+                    # 프롬프트 조립
+                    final_prompt = MAP_CORE_PROMPT.format(
+                        Timestamp=get_korea_timestamp(),
+                        Client_Tag=member,
+                        Exercise_Summary=exercise
+                    )
+                    final_prompt += f"\n\n[INPUT DATA]\nMember: {member}\nSymptom: {symptom}\nExercise: {exercise}\n\nAnalyze now."
+
+                    # AI 요청
+                    response = ai_client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[{"role": "system", "content": final_prompt}],
+                        temperature=0.2
+                    )
+                    full_res = response.choices[0].message.content
+
+                    # 화면 출력 (색상 적용)
+                    if "[STOP]" in full_res: css_class = "res-stop"
+                    elif "[MODIFICATION]" in full_res: css_class = "res-mod"
+                    else: css_class = "res-go"
+                    
+                    st.markdown(f"<div class='result-box {css_class}'>{full_res}</div>", unsafe_allow_html=True)
+
+                    # 카톡 추출 및 DB 저장
+                    kakao_msg = extract_kakao_message(full_res)
+                    ok, _ = safe_append_row(sheet, [
+                        get_korea_timestamp(), "PT_CORE_ANALYSIS", member, symptom, exercise, "DONE", full_res[:4000]
+                    ])
+                    
+                    if ok:
+                        st.success("💾 MAP 리포트 저장 완료")
+                        if send_k:
+                            k_ok, k_err = send_kakao_message(kakao_msg)
+                            if k_ok: 
+                                st.toast("💬 카톡 전송 완료!")
+                                with st.expander("보낸 카톡 내용 보기"):
+                                    st.text(kakao_msg)
+                            else: st.warning(f"카톡 실패: {k_err}")
+                    else:
+                        st.error("DB 저장 실패")
+
+                except Exception as e: st.error(f"엔진 오류: {e}")
+
+# === [TAB 2] 시설 관리 ===
+with tab2:
+    st.subheader("🛠️ 시설 안전 점검 로그")
+    with st.form("fac_form"):
+        task = st.selectbox("점검 유형", ["오픈조 순찰", "마감조 순찰", "기구 정비"])
+        place = st.selectbox("구역", ["웨이트존", "유산소존", "샤워실"])
+        memo = st.text_input("특이사항", "이상 없음")
+        staff = st.text_input("점검자")
+        send_k_fac = st.checkbox("점검 완료 카톡 보고", value=True)
+        save = st.form_submit_button("로그 저장")
+
+    if save:
+        if sheet:
+            ok, err = safe_append_row(sheet, [get_korea_timestamp(), "FACILITY", task, place, memo, staff])
+            if ok:
+                st.success(f"✅ [{task}] 저장 완료")
+                if send_k_fac:
+                    msg = f"[시설 점검 보고]\n시간: {get_korea_timestamp()}\n점검자: {staff}\n유형: {task}\n특이사항: {memo}"
+                    send_kakao_message(msg)
+            else: st.error(f"저장 실패: {err}")
