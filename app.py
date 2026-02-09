@@ -7,56 +7,72 @@ import requests
 import re
 
 # -----------------------------------------------------------------------------
-# 1. 시스템 설정 & 대시보드 스타일링
+# 1. 시스템 설정 & 라이트 모드(Clean White) 스타일링
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="MAP INTEGRATED SYSTEM", page_icon="🛡️", layout="wide")
 
 st.markdown("""
 <style>
-    /* 전체 배경 및 폰트 */
-    .main {background-color: #0E1117;}
-    
-    /* 입력 폼 카드 디자인 */
-    .stForm {
-        background-color: #1A1C24;
-        padding: 20px;
-        border-radius: 15px;
-        border: 1px solid #333;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    /* 1. 전체 배경 및 기본 폰트 (흰색 배경, 검은 글씨) */
+    .main {
+        background-color: #FFFFFF;
+        color: #333333;
     }
     
-    /* 결과 박스 디자인 (가독성 UP) */
+    /* 2. 입력 폼 디자인 (깔끔한 화이트 카드) */
+    .stForm {
+        background-color: #F8F9FA; /* 아주 연한 회색 */
+        padding: 20px;
+        border-radius: 12px;
+        border: 1px solid #E0E0E0;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    }
+    
+    /* 3. 결과 박스 디자인 (가독성 최적화) */
     .result-box {
         padding: 25px; 
         border-radius: 12px; 
         margin-top: 20px; 
         margin-bottom: 20px;
-        border: 1px solid #555;
-        color: #ffffff !important;
+        border: 1px solid #ddd;
         line-height: 1.6;
         font-size: 1.1em;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
     }
     
-    /* 상태별 컬러 테마 */
-    .res-stop {background: linear-gradient(135deg, #2d1212 0%, #4a0e0e 100%); border-left: 8px solid #ff4b4b;} 
-    .res-mod {background: linear-gradient(135deg, #2d240b 0%, #4a3b0e 100%); border-left: 8px solid #ffa425;}
-    .res-go {background: linear-gradient(135deg, #0f2615 0%, #0e4a1c 100%); border-left: 8px solid #00cc44;}
-
-    /* 강조 텍스트 */
+    /* 제목 및 강조 텍스트 (진한 검정) */
     .result-box h1, .result-box h2, .result-box h3, .result-box strong {
-        color: #ffffff !important;
-        text-shadow: 0px 0px 10px rgba(0,0,0,0.5);
+        color: #111111 !important;
+        font-weight: 800;
     }
 
-    /* 카톡 영역 */
+    /* 4. 상태별 컬러 테마 (파스텔 톤 배경 + 진한 글씨) */
+    /* STOP: 연한 빨강 배경 + 진한 빨강 글씨 */
+    .res-stop {
+        background-color: #FFF0F0; 
+        border-left: 8px solid #FF4B4B;
+        color: #8B0000 !important;
+    } 
+    /* MODIFICATION: 연한 주황 배경 + 진한 주황 글씨 */
+    .res-mod {
+        background-color: #FFF8E1; 
+        border-left: 8px solid #FFA500;
+        color: #8B4500 !important;
+    }
+    /* GO: 연한 초록 배경 + 진한 초록 글씨 */
+    .res-go {
+        background-color: #E8F5E9; 
+        border-left: 8px solid #00C853;
+        color: #1B5E20 !important;
+    }
+
+    /* 5. 카카오톡 영역 (노란색 강조) */
     .kakao-area {
         background-color: #FEE500;
         color: #3b1e1e !important;
         padding: 15px;
         border-radius: 10px;
         margin-top: 15px;
-        font-size: 0.9em;
         font-weight: bold;
     }
 </style>
@@ -173,19 +189,18 @@ You MUST output the response in the following structured sections using Markdown
 """
 
 # -----------------------------------------------------------------------------
-# 5. 메인 UI (편의성 개선)
+# 5. 메인 UI (Clean White Theme)
 # -----------------------------------------------------------------------------
 st.title("🛡️ MAP INTEGRATED SYSTEM")
 st.write(f"🕒 Time (KST): **{get_korea_timestamp()}**")
 
 tab1, tab2 = st.tabs(["🧬 PT 안전 분류 (Safety)", "🏢 시설 관리 로그"])
 
-# === [TAB 1] PT 안전 분류 (스마트 입력 폼) ===
+# === [TAB 1] PT 안전 분류 ===
 with tab1:
     with st.container():
         st.markdown("### 📋 PT 세션 안전 점검")
         with st.form("pt_form"):
-            # 입력 편의성 개선: 컬럼 분할 및 힌트 제공
             col1, col2 = st.columns(2)
             
             with col1:
@@ -193,7 +208,6 @@ with tab1:
                 member = st.text_input("회원 특이사항", placeholder="예: 50대 남성, 허리디스크")
                 
                 st.markdown("**🩺 컨디션 체크**")
-                # 자주 쓰는 부위 퀵 선택 (타이핑 줄이기)
                 body_part = st.selectbox("주요 통증/불편 부위 (빠른 선택)", 
                                        ["없음 (양호)", "허리 (Lumbar)", "무릎 (Knee)", "어깨 (Shoulder)", "목 (Neck)", "손목/발목", "직접 입력"])
                 
@@ -217,13 +231,11 @@ with tab1:
 
     if btn:
         if ai_client and sheet:
-            # 텍스트 조합 (퀵 선택 + 상세 입력)
             final_symptom = detail_symptom
             
-            # 고급 로딩바 (Status)
-            with st.status("🧠 Singularity 엔진 가동 중...", expanded=True) as status:
+            with st.status("🧠 분석 중...", expanded=True) as status:
                 try:
-                    status.write("🔍 1단계: 회원 데이터 파싱 중...")
+                    status.write("🔍 데이터 파싱 중...")
                     final_prompt = MAP_CORE_PROMPT.format(
                         Timestamp=get_korea_timestamp(),
                         Client_Tag=member,
@@ -231,7 +243,7 @@ with tab1:
                     )
                     final_prompt += f"\n\n[INPUT DATA]\nMember: {member}\nSymptom: {final_symptom}\nExercise: {exercise}\n\nAnalyze now."
 
-                    status.write("⚖️ 2단계: 생체역학 리스크 계산 중...")
+                    status.write("⚖️ 리스크 계산 중...")
                     response = ai_client.chat.completions.create(
                         model="gpt-4o",
                         messages=[{"role": "system", "content": final_prompt}],
@@ -239,7 +251,7 @@ with tab1:
                     )
                     full_res = response.choices[0].message.content
                     
-                    status.write("💾 3단계: 보안 데이터베이스 기록 중...")
+                    status.write("💾 데이터베이스 기록 중...")
                     kakao_msg = extract_kakao_message(full_res)
                     ok, _ = safe_append_row(sheet, [
                         get_korea_timestamp(), "PT_CORE_ANALYSIS", member, final_symptom, exercise, "DONE", full_res[:4000]
@@ -248,38 +260,36 @@ with tab1:
                     if ok:
                         status.update(label="✅ 분석 및 저장 완료!", state="complete", expanded=False)
                         
-                        # 화면 출력
                         if "[STOP]" in full_res: css_class = "res-stop"
                         elif "[MODIFICATION]" in full_res: css_class = "res-mod"
                         else: css_class = "res-go"
                         
                         st.markdown(f"<div class='result-box {css_class}'>{full_res}</div>", unsafe_allow_html=True)
 
-                        # 카톡 전송
                         if send_k:
                             k_ok, k_err = send_kakao_message(kakao_msg)
-                            if k_ok: 
-                                st.success("💬 카톡 전송 완료!")
+                            if k_ok: st.success("💬 카톡 전송 완료!")
                             else: st.warning(f"카톡 실패: {k_err}")
                     else:
                         status.update(label="❌ DB 저장 실패", state="error")
-                        st.error("데이터베이스 저장에 실패했습니다.")
+                        st.error("데이터베이스 저장 실패")
 
                 except Exception as e: 
-                    status.update(label="❌ 시스템 오류 발생", state="error")
+                    status.update(label="❌ 시스템 오류", state="error")
                     st.error(f"엔진 오류: {e}")
 
-# === [TAB 2] 시설 관리 (터치 최적화) ===
+# === [TAB 2] 시설 관리 (간소화 버전) ===
 with tab2:
     with st.container():
         st.markdown("### 🛠️ 시설 안전 점검 로그")
+        
         with st.form("fac_form"):
             col1, col2 = st.columns(2)
             
             with col1:
-                # 라디오 버튼으로 변경하여 클릭 횟수 감소
-                task = st.radio("점검 유형", ["오픈조 순찰", "마감조 순찰", "기구 정비", "청소 상태"], horizontal=True)
-                place = st.radio("점검 구역", ["웨이트존", "유산소존", "탈의실/샤워장", "프리웨이트"], horizontal=True)
+                # [수정] 불필요한 오픈/마감조 삭제 -> 행위 위주로 변경
+                task = st.radio("작업 유형", ["시설 순찰 (Patrol)", "기구 정비 (Fix)", "청소/환경 (Clean)", "기타 조치"], horizontal=True)
+                place = st.radio("점검 구역", ["웨이트존", "유산소존", "탈의실/샤워장", "프리웨이트/GX"], horizontal=True)
             
             with col2:
                 memo = st.text_input("특이사항 / 조치내용", "이상 없음 (Clear)")
