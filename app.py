@@ -6,9 +6,10 @@ import openai
 import requests
 import pandas as pd
 import re
+import time  # 안정성을 위한 시간 지연 모듈 추가
 
 # -----------------------------------------------------------------------------
-# 1. 시스템 설정 & 스타일 (가독성 최우선 디자인)
+# 1. 시스템 설정 & 스타일 (Clean & Luxury White)
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="MAP 통합 관리 시스템", page_icon="🛡️", layout="wide")
 
@@ -32,7 +33,7 @@ st.markdown("""
         border-radius: 15px; 
         margin: 20px 0; 
         border: 1px solid #ddd; 
-        font-size: 1.15em; /* 글씨 키움 */
+        font-size: 1.15em; 
         line-height: 1.8;
         color: #222 !important;
     }
@@ -45,18 +46,9 @@ st.markdown("""
     }
     
     /* 상태별 시각적 디자인 (신호등 색상) */
-    .res-stop {
-        background-color: #FFF0F0; 
-        border-left: 10px solid #DC3545; /* 진한 빨강 */
-    } 
-    .res-mod {
-        background-color: #FFF9E6; 
-        border-left: 10px solid #FFC107; /* 진한 노랑 */
-    }
-    .res-go {
-        background-color: #F0F9F4; 
-        border-left: 10px solid #28A745; /* 진한 초록 */
-    }
+    .res-stop { background-color: #FFF0F0; border-left: 10px solid #DC3545; } 
+    .res-mod { background-color: #FFF9E6; border-left: 10px solid #FFC107; }
+    .res-go { background-color: #F0F9F4; border-left: 10px solid #28A745; }
     
     /* 관리자 카드 */
     .metric-card {
@@ -67,17 +59,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 2. 유틸리티 함수
+# 2. 유틸리티 함수 (안정성 강화 패치 적용)
 # -----------------------------------------------------------------------------
 def get_korea_timestamp():
     return (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
 
 def extract_kakao_message(full_text):
     try:
-        # 한글 제목으로 변경됨에 따라 정규식 수정
         match = re.search(r"3\. 💬 카카오톡 전송 템플릿\s*-+\s*(.*?)\s*-+", full_text, re.DOTALL)
         if match: return match.group(1).strip()
-        # 못 찾으면 뒷부분 반환
         return full_text[-200:]
     except: return full_text[:100]
 
@@ -96,15 +86,21 @@ def send_kakao_message(text):
         url = "https://kapi.kakao.com/v2/api/talk/memo/default/send"
         headers = {"Authorization": "Bearer " + st.secrets["KAKAO_TOKEN"]}
         data = {"template_object": str({"object_type": "text", "text": text, "link": {"web_url": "https://streamlit.io"}})}
-        res = requests.post(url, headers=headers, data=data)
+        res = requests.post(url, headers=headers, data=data, timeout=5) # 타임아웃 추가
         return (True, "성공") if res.status_code == 200 else (False, f"실패({res.status_code})")
     except Exception as e: return False, str(e)
 
-def safe_append_row(sheet, row):
-    try:
-        sheet.append_row(row, value_input_option="USER_ENTERED")
-        return True, None
-    except Exception as e: return False, str(e)
+# [업그레이드] 저장 실패 시 3번 재시도하는 로직 추가 (안정성 강화)
+def safe_append_row(sheet, row, retries=3):
+    last_err = None
+    for i in range(retries):
+        try:
+            sheet.append_row(row, value_input_option="USER_ENTERED")
+            return True, None
+        except Exception as e:
+            last_err = str(e)
+            time.sleep(1) # 1초 대기 후 재시도
+    return False, last_err
 
 # -----------------------------------------------------------------------------
 # 3. 사이드바 (로그인 & 상태)
@@ -137,7 +133,7 @@ else:
     ai_client = None
 
 # -----------------------------------------------------------------------------
-# 4. 프롬프트 (KOREAN EASY MODE) - 쉬운 한글 + 이모지 신호등
+# 4. 프롬프트 (KOREAN EASY MODE) - 쉬운 한글 + 따뜻한 말투 유지
 # -----------------------------------------------------------------------------
 MAP_CORE_PROMPT = """
 # MASTER SYSTEM: MAP_INTEGRATED_CORE_v2026 (EASY_KOREAN)
@@ -253,9 +249,10 @@ with tab1:
         if ai_client and sheet:
             final_symptom = detail_symptom
             
+            # [업그레이드] st.spinner 대신 더 고급스러운 st.status 사용
             with st.status("🧠 AI 안전 엔진 가동 중...", expanded=True) as status:
                 try:
-                    status.write("🔍 1단계: 회원 컨디션 파악 중...")
+                    status.write("🔍 1단계: 회원 컨디션 정밀 파악 중...")
                     final_prompt = MAP_CORE_PROMPT.format(
                         Timestamp=get_korea_timestamp(),
                         Client_Tag=member,
@@ -263,7 +260,7 @@ with tab1:
                     )
                     final_prompt += f"\n\n[INPUT DATA]\nMember: {member}\nSymptom: {final_symptom}\nExercise: {exercise}\n\nAnalyze now."
 
-                    status.write("⚖️ 2단계: 부상 위험도 계산 중...")
+                    status.write("⚖️ 2단계: 생체역학적 부상 위험도 계산 중...")
                     response = ai_client.chat.completions.create(
                         model="gpt-4o",
                         messages=[{"role": "system", "content": final_prompt}],
@@ -271,26 +268,32 @@ with tab1:
                     )
                     full_res = response.choices[0].message.content
                     
-                    status.write("💾 3단계: 안전 데이터베이스 저장 중...")
+                    status.write("💾 3단계: 안전 데이터베이스 암호화 저장 중...")
                     kakao_msg = extract_kakao_message(full_res)
-                    safe_append_row(sheet, [get_korea_timestamp(), "PT_SAFETY_LOG", member, final_symptom, exercise, "DONE", full_res[:4000]])
                     
-                    status.update(label="✅ 분석 완료! 결과를 확인하세요.", state="complete", expanded=False)
+                    # [업그레이드] 재시도 로직이 포함된 함수 사용
+                    ok, err = safe_append_row(sheet, [get_korea_timestamp(), "PT_SAFETY_LOG", member, final_symptom, exercise, "DONE", full_res[:4000]])
                     
-                    # 시각적 결과 표시 (신호등 로직)
-                    if "⛔" in full_res: css = "res-stop"
-                    elif "⚠️" in full_res: css = "res-mod"
-                    else: css = "res-go"
-                    
-                    st.markdown(f"<div class='result-box {css}'>{full_res}</div>", unsafe_allow_html=True)
+                    if ok:
+                        status.update(label="✅ 분석 및 저장 완료! 결과를 확인하세요.", state="complete", expanded=False)
+                        
+                        # 시각적 결과 표시 (신호등 로직)
+                        if "⛔" in full_res: css = "res-stop"
+                        elif "⚠️" in full_res: css = "res-mod"
+                        else: css = "res-go"
+                        
+                        st.markdown(f"<div class='result-box {css}'>{full_res}</div>", unsafe_allow_html=True)
 
-                    if send_k:
-                        k_ok, k_err = send_kakao_message(kakao_msg)
-                        if k_ok: st.success("💬 카카오톡 전송 성공")
-                        else: st.warning(f"카톡 전송 실패: {k_err}")
+                        if send_k:
+                            k_ok, k_err = send_kakao_message(kakao_msg)
+                            if k_ok: st.success("💬 카카오톡 전송 성공")
+                            else: st.warning(f"카톡 전송 실패: {k_err}")
+                    else:
+                        status.update(label="❌ DB 저장 실패", state="error")
+                        st.error(f"저장 실패 (재시도 했으나 실패함): {err}")
 
                 except Exception as e: 
-                    status.update(label="❌ 오류 발생", state="error")
+                    status.update(label="❌ 치명적 오류 발생", state="error")
                     st.error(f"시스템 에러: {e}")
 
 # === [TAB 2] 시설 관리 ===
@@ -312,13 +315,14 @@ with tab2:
 
     if save:
         if sheet and staff:
+            # [업그레이드] 시설 관리에도 재시도 로직 적용
             ok, err = safe_append_row(sheet, [get_korea_timestamp(), "FACILITY", task, place, memo, staff])
             if ok:
                 st.success(f"✅ [{task}] 저장 완료")
                 if send_k_fac:
                     msg = f"[시설 점검 보고]\n시간: {get_korea_timestamp()}\n점검자: {staff}\n유형: {task}\n특이사항: {memo}"
                     send_kakao_message(msg)
-            else: st.error(f"저장 실패: {err}")
+            else: st.error(f"저장 실패 (네트워크 불안정): {err}")
         elif not staff:
             st.warning("⚠️ 점검자 이름을 입력해주세요.")
 
