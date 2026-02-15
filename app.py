@@ -4,543 +4,356 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 import openai
 import requests
-import json
+import pandas as pd
 import re
-import time
 
-# =============================================================================
-# 0. 기본 설정
-# =============================================================================
+# -----------------------------------------------------------------------------
+# 1. 시스템 설정 & 스타일 (Clean & Luxury White)
+# -----------------------------------------------------------------------------
 st.set_page_config(page_title="MAP INTEGRATED SYSTEM", page_icon="🛡️", layout="wide")
 
-# =============================================================================
-# 1. 스타일 (가독성/사용감 최적화)
-# =============================================================================
-st.markdown(
-    """
+st.markdown("""
 <style>
-/* 전체 배경 */
-.main { background-color: #FFFFFF; color: #111111; }
-
-/* 상단 상태바 */
-.topbar {
-    display:flex; justify-content: space-between; align-items:center;
-    padding: 12px 14px; border: 1px solid #E6E6E6; border-radius: 12px;
-    background: #FAFAFA; margin-bottom: 14px;
-}
-.topbar .left { font-size: 14px; color:#222; }
-.topbar .right { display:flex; gap:10px; align-items:center; }
-.badge {
-    padding: 6px 10px; border-radius: 999px; font-size: 12px;
-    border: 1px solid #E6E6E6; background:#FFFFFF; color:#222;
-}
-.badge-ok { border-color:#BFE8C7; background:#EAF7ED; color:#0B3D18; }
-.badge-err { border-color:#F1B5B5; background:#FCECEC; color:#5A0B0B; }
-.badge-warn { border-color:#F0D7A7; background:#FFF6E5; color:#5B3A00; }
-
-/* 섹션 카드 */
-.card {
-    border: 1px solid #E6E6E6; border-radius: 14px;
-    background: #FFFFFF; padding: 16px; margin-bottom: 14px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.04);
-}
-.card-title { font-size: 16px; font-weight: 800; margin-bottom: 10px; color:#111; }
-.card-sub { font-size: 13px; color:#444; margin-top: -6px; margin-bottom: 12px; }
-
-/* 판정 배너 */
-.decision-banner {
-    padding: 18px 16px; border-radius: 14px; border: 1px solid #E6E6E6;
-    display:flex; justify-content: space-between; align-items:center;
-    margin-bottom: 12px;
-}
-.decision-left { display:flex; flex-direction: column; gap:4px; }
-.decision-tag { font-size: 12px; font-weight: 700; opacity: 0.9; }
-.decision-main { font-size: 22px; font-weight: 900; letter-spacing: 0.5px; }
-.decision-desc { font-size: 13px; color:#222; opacity: 0.95; }
-.decision-meta { font-size: 12px; color:#333; opacity: 0.8; text-align:right; }
-
-.dec-go { background:#EAF7ED; border-color:#BFE8C7; color:#0B3D18; }
-.dec-mod { background:#FFF6E5; border-color:#F0D7A7; color:#5B3A00; }
-.dec-stop { background:#FCECEC; border-color:#F1B5B5; color:#5A0B0B; }
-
-/* 보고서 본문 */
-.report {
-    border: 1px solid #EDEDED; border-radius: 14px;
-    background: #FCFCFC; padding: 14px;
-    line-height: 1.65; font-size: 15px; color:#111;
-}
-.report h1, .report h2, .report h3 { color:#111 !important; font-weight: 900; }
-.report strong { color:#111 !important; font-weight: 900; }
-
-/* 카카오 박스 */
-.kakao {
-    border: 1px solid #F3E57A; border-radius: 14px;
-    background: #FFF7CC; padding: 14px; line-height: 1.6;
-    color:#2E1C00;
-}
-
-/* 작은 도움말 */
-.hint { font-size: 12px; color:#555; margin-top: 6px; }
-hr { border: none; border-top: 1px solid #EFEFEF; margin: 12px 0; }
+    /* 전체 배경: 깨끗한 화이트 */
+    .main {background-color: #FFFFFF; color: #333;}
+    
+    /* 입력 폼: 부드러운 그림자의 카드 스타일 */
+    .stForm {
+        background-color: #F8F9FA; 
+        padding: 25px; 
+        border-radius: 15px; 
+        border: 1px solid #E9ECEF;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.03);
+    }
+    
+    /* 결과 박스: 가독성 최적화 */
+    .result-box {
+        padding: 25px; 
+        border-radius: 12px; 
+        margin: 20px 0; 
+        border: 1px solid #ddd; 
+        font-size: 1.1em;
+        line-height: 1.7;
+    }
+    .result-box h1, .result-box h2, .result-box strong {color: #111 !important; font-weight: 800;}
+    
+    /* 상태별 컬러 테마 (파스텔 + 진한 포인트) */
+    .res-stop {background-color: #FFF5F5; border-left: 8px solid #FF4B4B; color: #8B0000 !important;} 
+    .res-mod {background-color: #FFF8E1; border-left: 8px solid #FFA500; color: #8B4500 !important;}
+    .res-go {background-color: #F1F8E9; border-left: 8px solid #00C853; color: #1B5E20 !important;}
+    
+    /* 카카오톡 미리보기 영역 */
+    .kakao-preview {
+        background-color: #FEE500; 
+        color: #3b1e1e; 
+        padding: 15px; 
+        border-radius: 10px; 
+        font-size: 0.95em; 
+        margin-top: 10px;
+        border: 1px dashed #cfba00;
+    }
+    
+    /* 관리자 대시보드 카드 */
+    .metric-card {
+        background-color: #fff; border: 1px solid #eee; padding: 20px; 
+        border-radius: 12px; text-align: center; box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    }
 </style>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
 
-# =============================================================================
-# 2. 유틸
-# =============================================================================
-def get_korea_timestamp() -> str:
+# -----------------------------------------------------------------------------
+# 2. 유틸리티 함수
+# -----------------------------------------------------------------------------
+def get_korea_timestamp():
     return (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
+
+def extract_kakao_message(full_text):
+    try:
+        match = re.search(r"3\. 💬 카카오톡 전송 템플릿\s*-+\s*(.*?)\s*-+", full_text, re.DOTALL)
+        if match: return match.group(1).strip()
+        return full_text[:100]
+    except: return full_text[:100]
 
 def connect_db():
     try:
-        if "gcp_service_account" not in st.secrets:
-            return None, "Secrets에 gcp_service_account가 없습니다."
+        if "gcp_service_account" not in st.secrets: return None, "Secrets 설정 누락"
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets["gcp_service_account"]), scope)
-        gc = gspread.authorize(creds)
-        doc = gc.open("MAP_DATABASE")
-        sheet = doc.sheet1
-        return sheet, f"연결 성공 (시트 탭: {sheet.title})"
-    except Exception as e:
-        return None, f"연결 실패: {str(e)}"
+        client = gspread.authorize(creds)
+        return client.open("MAP_DATABASE").sheet1, "✅ DB 연결됨"
+    except Exception as e: return None, str(e)
 
-def safe_append_row(sheet, row, retries=3, sleep_sec=0.8):
-    """
-    구글 시트 저장 신뢰성 강화:
-    - 네트워크/일시 오류 재시도
-    - 실패 시 원인 반환
-    """
-    last_err = None
-    for _ in range(retries):
-        try:
-            sheet.append_row(row, value_input_option="USER_ENTERED")
-            return True, None
-        except Exception as e:
-            last_err = str(e)
-            time.sleep(sleep_sec)
-    return False, last_err
-
-def send_kakao_message(text: str):
-    """
-    카카오 나에게 보내기(메모) API.
-    주의: template_object는 JSON 문자열이어야 합니다.
-    """
+def send_kakao_message(text):
     try:
-        if "KAKAO_TOKEN" not in st.secrets:
-            return False, "KAKAO_TOKEN이 Secrets에 없습니다."
+        if "KAKAO_TOKEN" not in st.secrets: return False, "토큰 없음"
         url = "https://kapi.kakao.com/v2/api/talk/memo/default/send"
         headers = {"Authorization": "Bearer " + st.secrets["KAKAO_TOKEN"]}
-        payload = {
-            "object_type": "text",
-            "text": text,
-            "link": {"web_url": "https://streamlit.io", "mobile_web_url": "https://streamlit.io"},
-        }
-        data = {"template_object": json.dumps(payload, ensure_ascii=False)}
-        res = requests.post(url, headers=headers, data=data, timeout=10)
-        if res.status_code == 200:
-            return True, None
-        return False, f"HTTP {res.status_code}: {res.text[:200]}"
-    except Exception as e:
-        return False, str(e)
+        data = {"template_object": str({"object_type": "text", "text": text, "link": {"web_url": "https://streamlit.io"}})}
+        res = requests.post(url, headers=headers, data=data)
+        return (True, "성공") if res.status_code == 200 else (False, f"실패({res.status_code})")
+    except Exception as e: return False, str(e)
 
-def extract_decision(text: str) -> str:
-    """
-    최상위 판정 단일화(가장 중요):
-    모델 출력에서 STOP/MODIFICATION/GO를 단 하나로 추출합니다.
-    우선순위: STOP > MODIFICATION > GO (충돌 시 보수적으로)
-    """
-    t = (text or "").upper()
-    has_stop = ("[STOP]" in t) or re.search(r"\bSTOP\b", t)
-    has_mod = ("[MODIFICATION]" in t) or re.search(r"\bMODIFICATION\b", t) or re.search(r"\bCAUTION\b", t)
-    has_go = ("[GO]" in t) or re.search(r"\bGO\b", t)
-    if has_stop:
-        return "STOP"
-    if has_mod:
-        return "MODIFICATION"
-    if has_go:
-        return "GO"
-    return "MODIFICATION"
+def safe_append_row(sheet, row):
+    try:
+        sheet.append_row(row, value_input_option="USER_ENTERED")
+        return True, None
+    except Exception as e: return False, str(e)
 
-def split_sections(full_text: str):
-    """
-    보고서/내부로그/카카오 섹션 분리.
-    실패해도 전체 텍스트를 보고서로 보여줍니다.
-    """
-    text = full_text or ""
-    kakao = ""
-    internal = ""
-    report = text
+# -----------------------------------------------------------------------------
+# 3. 사이드바 (로그인 & 상태)
+# -----------------------------------------------------------------------------
+st.sidebar.title("🔐 관리자 접속")
 
-    # 카카오 섹션
-    m_k = re.search(r"###\s*3\.\s*.*?카카오톡.*?\n---\n(.*?)(\n---\s*$|\Z)", text, re.DOTALL)
-    if m_k:
-        kakao = m_k.group(1).strip()
+if "admin_logged_in" not in st.session_state:
+    st.session_state.admin_logged_in = False
 
-    # 내부 로그 섹션
-    m_i = re.search(r"###\s*2\.\s*.*?상세 분석.*?\n---\n(.*?)(\n---\s*###\s*3\.|\Z)", text, re.DOTALL)
-    if m_i:
-        internal = m_i.group(1).strip()
+if not st.session_state.admin_logged_in:
+    password = st.sidebar.text_input("비밀번호", type="password")
+    if st.sidebar.button("로그인"):
+        if password == "1234": # 비밀번호 변경 가능
+            st.session_state.admin_logged_in = True
+            st.rerun()
+        else:
+            st.sidebar.error("비밀번호가 틀렸습니다.")
+else:
+    st.sidebar.success("👑 관리자 모드 ON")
+    if st.sidebar.button("로그아웃"):
+        st.session_state.admin_logged_in = False
+        st.rerun()
 
-    # 보고서 섹션(1번)
-    m_r = re.search(r"###\s*1\.\s*.*?\n---\n(.*?)(\n---\s*###\s*2\.|\Z)", text, re.DOTALL)
-    if m_r:
-        report = m_r.group(1).strip()
+sheet, db_msg = connect_db()
+if not sheet: st.error(f"DB 오류: {db_msg}")
 
-    return report, internal, kakao
+if "OPENAI_API_KEY" in st.secrets:
+    ai_client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+else:
+    ai_client = None
 
-# =============================================================================
-# 3. 프롬프트 (고정: 일관성 확보)
-# =============================================================================
+# -----------------------------------------------------------------------------
+# 4. 프롬프트 (KOREAN PRO VER.) - 전문성(한글) + 감성(카톡)
+# -----------------------------------------------------------------------------
 MAP_CORE_PROMPT = """
-# MASTER SYSTEM: MAP_INTEGRATED_CORE_v2026 (SMART-LITE)
-# ROLE: Non-medical Safety Administration System for Gyms
+# MASTER SYSTEM: MAP_INTEGRATED_CORE_v2026 (KOREAN_PRO)
+# PRIORITY: Legal Safety > Operational Structure > Member Care
 
-[PRIORITY ORDER]
-1) Legal defensibility (dry, factual, administrative)
-2) Operational usability (fast, consistent)
-3) Member-facing care (polite, minimal)
+**[SYSTEM ROLE]**
+1. **Internal Brain (Analysis):** Professional Safety Officer.
+2. **External Voice (KakaoTalk):** High-end Concierge.
 
-[CORE RULES]
-- This is NOT a medical diagnosis.
-- Be conservative when there is a plausible load conflict.
-- Always choose exactly ONE decision: STOP / MODIFICATION / GO.
-- Avoid long explanations. No emotional language.
+**[ABSOLUTE RULES (LEGAL SAFETY)]**
+1. **NO MEDICAL PRACTICE:** Do NOT use words like '진단', '치료', '처방', '완치'.
+2. **ADMINISTRATIVE TONE:** Use words like '분류', '관리', '가이드', '리스크 확인'.
+3. **LANGUAGE:** Output ALL SECTIONS in **Professional Korean**.
 
-[OUTPUT FORMAT]
-You MUST output the response in the following structured sections using Markdown, exactly:
+**[OUTPUT FORMATS]**
+You MUST output the response in the following structured sections using Markdown:
 
-### 1. FSL Administrative Report
+### 1. 📋 FSL 현장 리포트 (Internal Admin)
 ---
-[MAP ANALYSIS : {Timestamp}]
-Target: {Client_Tag}
-Plan: {Exercise_Summary}
+**[MAP ANALYSIS : {Timestamp}]**
+**Target:** {Client_Tag}
+**Plan:** {Exercise_Summary}
 
-Decision: [STOP] or [MODIFICATION] or [GO]
-Reason: (1 short administrative sentence, Korean)
-Restriction: (1 short line)
-Alternative: (1 short line)
-Cue: (1 short line)
----
+**1. 판정:** [GO] or [MODIFICATION] or [STOP]
+(Strict biomechanical decision)
 
-### 2. Internal Check Matrix
----
-RedFlag: PASS/FAIL
-LoadConflict: DIRECT/INDIRECT/NONE
-Sanitization: APPLIED
+**2. 리스크 요인:**
+- (Explain in professional Korean. e.g., "요추 4-5번 디스크 병력으로 인해 수직 압축 부하 발생 시 통증 악화 우려.")
+
+**3. 액션 프로토콜:**
+- ⛔ **제한:** (e.g., "중량 부하 제한", "가동범위 축소")
+- ✅ **대체:** (e.g., "척추 중립이 확보되는 힙 힌지 패턴으로 변경")
+- ⚠️ **큐잉:** (e.g., "복압 유지 및 통증 발생 시 즉시 중단 신호")
 ---
 
-### 3. Kakao Message Template
+### 2. 🔬 MAP 상세 분석 로그
 ---
-안녕하세요, {Client_Tag}님.
-MAP 트레이닝 센터입니다.
+**Red Flag Check:** (Pass or Fail / Reason in Korean)
+**Mechanism Check:** (Biomechanics logic in Korean)
+**Sanitization:** (Masked)
+---
 
-오늘 컨디션을 고려하여 안전을 우선으로 안내드립니다.
-오늘 진행 포인트: (1 short safe sentence)
+### 3. 💬 카카오톡 전송 템플릿 (Client Facing)
+---
+(Warm, polite, caring tone. Emojis allowed.)
 
-감사합니다.
+안녕하세요, **{Client_Tag}**님! 👋
+**킹스짐(King's Gym) 안전관리팀**입니다.
+
+오늘 컨디션을 확인해보니 **{Exercise_Summary}** 진행 시 조금 더 세심한 주의가 필요할 것 같아요. 🧐
+
+회원님의 소중한 몸을 보호하기 위해, 오늘은 무리한 진행보다는
+👉 **(Write a warm suggestion based on the protocol. e.g., "허리 부담을 줄이는 안전한 자세로", "컨디션 회복을 위한 맞춤 운동으로")**
+방향을 잡아드리고자 합니다.
+
+작은 불편함도 놓치지 않고, 가장 안전하고 효율적인 길로 안내하겠습니다.
+현장에서 트레이너 선생님의 가이드를 잘 따라주세요! 💪
+
+(본 알림은 회원님의 안전을 위한 행정적 가이드입니다.)
 ---
 """
 
-# =============================================================================
-# 4. 연결 상태 로드
-# =============================================================================
-sheet, db_msg = connect_db()
-
-ai_client = None
-ai_msg = "OpenAI 키가 없습니다."
-try:
-    if "OPENAI_API_KEY" in st.secrets and str(st.secrets["OPENAI_API_KEY"]).strip():
-        ai_client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-        ai_msg = "AI 연결됨"
-except Exception as e:
-    ai_client = None
-    ai_msg = f"AI 연결 실패: {str(e)}"
-
-# =============================================================================
-# 5. 상단 UI
-# =============================================================================
-left = f"System Time (KST): {get_korea_timestamp()}"
-if sheet:
-    db_badge = f"<span class='badge badge-ok'>DB: ONLINE</span>"
-else:
-    db_badge = f"<span class='badge badge-err'>DB: OFFLINE</span>"
-
-if ai_client:
-    ai_badge = f"<span class='badge badge-ok'>AI: READY</span>"
-else:
-    ai_badge = f"<span class='badge badge-err'>AI: NOT READY</span>"
-
-st.markdown(
-    f"""
-<div class="topbar">
-  <div class="left">{left}</div>
-  <div class="right">
-    {db_badge}
-    {ai_badge}
-  </div>
-</div>
-""",
-    unsafe_allow_html=True,
-)
-
-# =============================================================================
-# 6. 메인 탭
-# =============================================================================
-tab1, tab2 = st.tabs(["PT 사전 안전 분류", "시설 안전 로그"])
-
 # -----------------------------------------------------------------------------
-# TAB 1: PT
+# 5. 메인 UI (Dashboard Layout)
 # -----------------------------------------------------------------------------
+st.title("🛡️ MAP INTEGRATED SYSTEM")
+st.write(f"🕒 Time (KST): **{get_korea_timestamp()}**")
+
+# 탭 구성
+if st.session_state.admin_logged_in:
+    tab1, tab2, tab3 = st.tabs(["🧬 PT 안전 분류", "🏢 시설 관리 로그", "👑 관리자 대시보드"])
+else:
+    tab1, tab2 = st.tabs(["🧬 PT 안전 분류", "🏢 시설 관리 로그"])
+    tab3 = None
+
+# === [TAB 1] PT 안전 분류 (Smart Form) ===
 with tab1:
-    st.markdown("<div class='card'><div class='card-title'>PT 세션 사전 안전 분류</div>"
-                "<div class='card-sub'>본 기능은 의료 진단이 아닌, 안전 및 법적 방어를 위한 행정 분류 기록입니다.</div></div>",
-                unsafe_allow_html=True)
+    with st.container():
+        st.markdown("### 📋 PT 세션 안전 점검")
+        with st.form("pt_form"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**👤 회원 정보**")
+                member = st.text_input("회원 특이사항", placeholder="예: 50대 남성, 허리디스크")
+                
+                st.markdown("**🩺 컨디션 체크 (빠른 선택)**")
+                body_part = st.selectbox("주요 통증/불편 부위", 
+                                       ["없음 (양호)", "허리 (Lumbar)", "무릎 (Knee)", "어깨 (Shoulder)", "목 (Neck)", "손목/발목", "직접 입력"])
+                
+                detail_symptom = ""
+                if body_part == "직접 입력": detail_symptom = st.text_input("증상 상세 입력")
+                elif body_part != "없음 (양호)": detail_symptom = body_part + " 통증/불편감"
+                else: detail_symptom = "특이사항 없음"
 
-    with st.form("pt_form"):
-        c1, c2 = st.columns([1, 1])
+            with col2:
+                st.markdown("**🏋️ 운동 계획**")
+                exercise = st.text_input("수행 예정 운동", placeholder="예: 데드리프트, 스쿼트")
+                
+                st.markdown("**📨 옵션**")
+                send_k = st.checkbox("✅ 분석 결과를 카카오톡으로 전송", value=True)
+                
+            st.divider()
+            btn = st.form_submit_button("🚀 CORE 엔진 분석 실행", use_container_width=True)
 
-        with c1:
-            st.markdown("<div class='card'><div class='card-title'>입력</div>", unsafe_allow_html=True)
-            member = st.text_input("회원 식별(이름 또는 태그)", placeholder="예: 김OO / 50대 남성 / 디스크 과거력")
-            symptom_pick = st.selectbox(
-                "주요 불편 부위(빠른 선택)",
-                ["특이사항 없음", "허리", "무릎", "어깨", "목", "손목/팔꿈치", "발목/고관절", "직접 입력"],
-                index=0
-            )
-            symptom_detail = ""
-            if symptom_pick == "직접 입력":
-                symptom_detail = st.text_input("증상 상세", placeholder="예: 오른쪽 무릎 내측 통증, 계단 시 악화")
-            elif symptom_pick == "특이사항 없음":
-                symptom_detail = "특이사항 없음"
-            else:
-                symptom_detail = f"{symptom_pick} 불편감"
+    if btn:
+        if ai_client and sheet:
+            final_symptom = detail_symptom
+            
+            with st.status("🧠 Singularity 엔진 가동 중...", expanded=True) as status:
+                try:
+                    status.write("🔍 1단계: 회원 데이터 및 컨디션 파싱...")
+                    # 프롬프트 조립 (f-string 에러 방지용 format 사용)
+                    final_prompt = MAP_CORE_PROMPT.format(
+                        Timestamp=get_korea_timestamp(),
+                        Client_Tag=member,
+                        Exercise_Summary=exercise
+                    )
+                    final_prompt += f"\n\n[INPUT DATA]\nMember: {member}\nSymptom: {final_symptom}\nExercise: {exercise}\n\nAnalyze now."
 
-            st.markdown("</div>", unsafe_allow_html=True)
+                    status.write("⚖️ 2단계: 생체역학적 리스크 & 감성 메시지 생성 중...")
+                    response = ai_client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[{"role": "system", "content": final_prompt}],
+                        temperature=0.3 # 약간의 창의성 허용 (감성 메시지용)
+                    )
+                    full_res = response.choices[0].message.content
+                    
+                    status.write("💾 3단계: 보안 데이터베이스 기록 중...")
+                    kakao_msg = extract_kakao_message(full_res)
+                    safe_append_row(sheet, [get_korea_timestamp(), "PT_CORE_ANALYSIS", member, final_symptom, exercise, "DONE", full_res[:4000]])
+                    
+                    status.update(label="✅ 분석 완료! 아래 리포트를 확인하세요.", state="complete", expanded=False)
+                    
+                    # 결과 출력
+                    if "[STOP]" in full_res: css = "res-stop"
+                    elif "[MODIFICATION]" in full_res: css = "res-mod"
+                    else: css = "res-go"
+                    
+                    st.markdown(f"<div class='result-box {css}'>{full_res}</div>", unsafe_allow_html=True)
 
-        with c2:
-            st.markdown("<div class='card'><div class='card-title'>운동 계획 및 옵션</div>", unsafe_allow_html=True)
-            exercise = st.text_input("수행 예정 운동", placeholder="예: 데드리프트 / 스쿼트 / 벤치프레스")
-            send_k = st.checkbox("결과를 카카오톡으로 전송", value=False)
-            save_db = st.checkbox("결과를 DB에 저장", value=True)
-            st.markdown("<div class='hint'>저장 실패 시에는 우측 상단 DB 상태와 관리자 진단(사이드바)을 확인하십시오.</div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+                    if send_k:
+                        k_ok, k_err = send_kakao_message(kakao_msg)
+                        if k_ok: st.success("💬 카톡 전송 완료!")
+                        else: st.warning(f"카톡 전송 실패: {k_err}")
 
-        submit = st.form_submit_button("분석 실행", use_container_width=True)
+                except Exception as e: 
+                    status.update(label="❌ 오류 발생", state="error")
+                    st.error(f"시스템 에러: {e}")
 
-    # 사이드바 진단
-    st.sidebar.markdown("관리자 진단")
-    st.sidebar.write(f"DB: {db_msg}")
-    st.sidebar.write(f"AI: {ai_msg}")
-
-    if st.sidebar.button("DB 쓰기 테스트"):
-        if not sheet:
-            st.sidebar.error("DB가 OFFLINE입니다. Secrets/공유 권한/시트 이름을 확인하십시오.")
-        else:
-            ok, err = safe_append_row(sheet, [get_korea_timestamp(), "DEBUG_TEST", "WRITE_CHECK", "OK"])
-            if ok:
-                st.sidebar.success("쓰기 성공")
-            else:
-                st.sidebar.error(f"쓰기 실패: {err}")
-
-    if submit:
-        # 입력 검증
-        if not member.strip():
-            st.error("회원 식별을 입력하십시오.")
-            st.stop()
-        if not exercise.strip():
-            st.error("수행 예정 운동을 입력하십시오.")
-            st.stop()
-        if not ai_client:
-            st.error("AI가 준비되지 않았습니다. Secrets의 OPENAI_API_KEY를 확인하십시오.")
-            st.stop()
-
-        # 프롬프트 구성
-        prompt = MAP_CORE_PROMPT.format(
-            Timestamp=get_korea_timestamp(),
-            Client_Tag=member.strip(),
-            Exercise_Summary=exercise.strip(),
-        )
-        prompt += f"\n\n[INPUT]\nMember: {member.strip()}\nSymptom: {symptom_detail.strip()}\nExercise: {exercise.strip()}\n"
-
-        with st.status("분석 및 기록 처리 중", expanded=True) as status:
-            # 1) AI 호출
-            status.write("AI 분석 실행")
-            try:
-                res = ai_client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[{"role": "system", "content": prompt}],
-                    temperature=0.2
-                )
-                full_text = res.choices[0].message.content or ""
-            except Exception as e:
-                status.update(label="AI 호출 실패", state="error", expanded=True)
-                st.error(f"AI 호출 오류: {str(e)}")
-                st.stop()
-
-            # 2) 판정 단일화(최상단 배너와 본문 충돌 방지)
-            decision = extract_decision(full_text)
-
-            # 3) 섹션 분리
-            report, internal, kakao = split_sections(full_text)
-
-            # 4) 상단 판정 배너 (항상 decision 기준)
-            if decision == "STOP":
-                banner_cls = "dec-stop"
-                desc = "고위험으로 분류됩니다. 즉시 중단 또는 대체가 필요합니다."
-            elif decision == "MODIFICATION":
-                banner_cls = "dec-mod"
-                desc = "주의가 필요합니다. 강도 조정 또는 대체가 필요합니다."
-            else:
-                banner_cls = "dec-go"
-                desc = "특이 충돌이 낮습니다. 안전 수칙 준수 하에 진행 가능합니다."
-
-            st.markdown(
-                f"""
-<div class="decision-banner {banner_cls}">
-  <div class="decision-left">
-    <div class="decision-tag">Decision</div>
-    <div class="decision-main">{decision}</div>
-    <div class="decision-desc">{desc}</div>
-  </div>
-  <div class="decision-meta">
-    <div>Target: {member.strip()}</div>
-    <div>Plan: {exercise.strip()}</div>
-    <div>Time: {get_korea_timestamp()}</div>
-  </div>
-</div>
-""",
-                unsafe_allow_html=True,
-            )
-
-            # 5) 보고서 본문 (가독성 정리)
-            status.write("보고서 표시")
-            st.markdown("<div class='card'><div class='card-title'>FSL Report</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='report'>{report}</div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-
-            # 6) 내부 로그 / 카카오 (접기)
-            with st.expander("Internal Check Matrix", expanded=False):
-                if internal.strip():
-                    st.markdown(f"<div class='report'>{internal}</div>", unsafe_allow_html=True)
-                else:
-                    st.write("내부 로그가 포함되지 않았습니다.")
-
-            with st.expander("Kakao Message Template", expanded=True):
-                if kakao.strip():
-                    st.markdown(f"<div class='kakao'>{kakao}</div>", unsafe_allow_html=True)
-                else:
-                    st.write("카카오 템플릿이 포함되지 않았습니다.")
-
-            # 7) DB 저장 (핵심: 저장 성공/실패를 확실히 표시)
-            if save_db:
-                status.write("DB 저장 시도")
-                if not sheet:
-                    status.update(label="DB 저장 실패", state="error", expanded=True)
-                    st.error("DB가 OFFLINE입니다. 시트 공유 권한 및 Secrets를 확인하십시오.")
-                else:
-                    row = [
-                        get_korea_timestamp(),
-                        "PT_CORE_ANALYSIS",
-                        member.strip(),
-                        symptom_detail.strip(),
-                        exercise.strip(),
-                        decision,
-                        (full_text[:4000] if full_text else "")
-                    ]
-                    ok, err = safe_append_row(sheet, row)
-                    if ok:
-                        status.write("DB 저장 성공")
-                    else:
-                        status.update(label="DB 저장 실패", state="error", expanded=True)
-                        st.error(f"DB 저장 실패: {err}")
-
-            # 8) 카카오 전송
-            if send_k:
-                status.write("카카오 전송 시도")
-                if not kakao.strip():
-                    st.warning("카카오 템플릿이 비어 있어 전송을 생략합니다.")
-                else:
-                    k_ok, k_err = send_kakao_message(kakao.strip())
-                    if k_ok:
-                        status.write("카카오 전송 성공")
-                    else:
-                        st.warning(f"카카오 전송 실패: {k_err}")
-
-            status.update(label="완료", state="complete", expanded=False)
-
-# -----------------------------------------------------------------------------
-# TAB 2: 시설 로그
-# -----------------------------------------------------------------------------
+# === [TAB 2] 시설 관리 (Speedy Log) ===
 with tab2:
-    st.markdown("<div class='card'><div class='card-title'>시설 안전 로그</div>"
-                "<div class='card-sub'>건조한 사실 기록만 남기며, 불필요한 과장 표현을 사용하지 않습니다.</div></div>",
-                unsafe_allow_html=True)
-
-    with st.form("facility_form"):
-        c1, c2 = st.columns([1, 1])
-
-        with c1:
-            st.markdown("<div class='card'><div class='card-title'>작업 선택</div>", unsafe_allow_html=True)
-            task = st.radio("작업 유형", ["시설 순찰", "기구 정비", "청소/환경", "기타 조치"], horizontal=True)
-            place = st.radio("점검 구역", ["웨이트존", "유산소존", "탈의실/샤워장", "프리웨이트/GX"], horizontal=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        with c2:
-            st.markdown("<div class='card'><div class='card-title'>기록</div>", unsafe_allow_html=True)
-            memo = st.text_input("특이사항/조치내용", value="이상 없음")
-            staff = st.text_input("점검자 실명", placeholder="예: 홍길동")
-            send_k_fac = st.checkbox("지점장에게 카카오 보고", value=False)
-            save_db_fac = st.checkbox("DB에 저장", value=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        save = st.form_submit_button("기록 저장", use_container_width=True)
+    with st.container():
+        st.markdown("### 🛠️ 시설 안전 점검 로그")
+        with st.form("fac_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                task = st.radio("작업 유형", ["시설 순찰 (Patrol)", "기구 정비 (Fix)", "청소/환경 (Clean)", "기타 조치"], horizontal=True)
+                place = st.radio("점검 구역", ["웨이트존", "유산소존", "탈의실/샤워장", "프리웨이트/GX"], horizontal=True)
+            with col2:
+                memo = st.text_input("특이사항 / 조치내용", "이상 없음 (Clear)")
+                staff = st.text_input("점검자 서명")
+                send_k_fac = st.checkbox("지점장님께 카톡 보고", value=True)
+            
+            st.divider()
+            save = st.form_submit_button("📝 점검 기록 저장", use_container_width=True)
 
     if save:
-        if not staff.strip():
-            st.error("점검자 실명을 입력하십시오.")
-            st.stop()
+        if sheet and staff:
+            ok, err = safe_append_row(sheet, [get_korea_timestamp(), "FACILITY", task, place, memo, staff])
+            if ok:
+                st.success(f"✅ [{task}] 저장 완료")
+                if send_k_fac:
+                    msg = f"[시설 점검 보고]\n시간: {get_korea_timestamp()}\n점검자: {staff}\n유형: {task}\n특이사항: {memo}"
+                    send_kakao_message(msg)
+            else: st.error(f"저장 실패: {err}")
+        elif not staff:
+            st.warning("⚠️ 점검자 이름을 입력해주세요.")
 
-        ts = get_korea_timestamp()
-
-        # 화면 표시용 드라이 로그
-        log_text = (
-            f"[FACILITY SAFETY LOG]\n"
-            f"EVENT: {task}\n"
-            f"TIMESTAMP: {ts}\n"
-            f"LOCATION: {place}\n"
-            f"ACTION: {memo.strip()}\n"
-            f"STAFF: {staff.strip()}\n"
-        )
-
-        st.markdown("<div class='card'><div class='card-title'>저장 결과</div>", unsafe_allow_html=True)
-        st.code(log_text, language="text")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        # DB 저장
-        if save_db_fac:
-            if not sheet:
-                st.error("DB가 OFFLINE입니다. 시트 공유 권한 및 Secrets를 확인하십시오.")
+# === [TAB 3] 👑 관리자 대시보드 (Admin Only) ===
+if tab3 and sheet:
+    with tab3:
+        st.header("👑 MAP ADMIN DASHBOARD")
+        st.caption("실시간 데이터 분석 및 로그 조회")
+        
+        if st.button("🔄 데이터 새로고침"): st.rerun()
+            
+        try:
+            data = sheet.get_all_values()
+            if len(data) > 1:
+                df = pd.DataFrame(data[1:], columns=["Timestamp", "Type", "Detail1", "Detail2", "Detail3", "Detail4", "RawData"])
+                
+                # 1. 통계 지표
+                st.markdown("#### 📊 실시간 현황")
+                m1, m2, m3, m4 = st.columns(4)
+                
+                total = len(df)
+                today_cnt = len(df[df['Timestamp'].str.contains(get_korea_timestamp()[:10], na=False)])
+                pt_cnt = len(df[df['Type'].str.contains("PT", na=False)])
+                fac_cnt = len(df[df['Type'].str.contains("FACILITY", na=False)])
+                
+                m1.metric("총 누적 데이터", f"{total}건")
+                m2.metric("오늘 생성된 로그", f"{today_cnt}건", "+New")
+                m3.metric("PT 분석 리포트", f"{pt_cnt}건")
+                m4.metric("시설 점검 리포트", f"{fac_cnt}건")
+                
+                st.divider()
+                
+                # 2. 로그 뷰어
+                st.markdown("#### 📋 전체 로그 데이터")
+                filter_opt = st.selectbox("필터링", ["전체 보기", "PT 리포트만", "시설 점검만"])
+                
+                view_df = df
+                if filter_opt == "PT 리포트만": view_df = df[df['Type'].str.contains("PT", na=False)]
+                elif filter_opt == "시설 점검만": view_df = df[df['Type'].str.contains("FACILITY", na=False)]
+                
+                view_df = view_df.sort_values(by="Timestamp", ascending=False)
+                st.dataframe(view_df, use_container_width=True)
+                
+                # 3. 다운로드
+                csv = view_df.to_csv(index=False).encode('utf-8-sig')
+                st.download_button("📥 엑셀(CSV) 다운로드", csv, "map_logs.csv", "text/csv")
             else:
-                ok, err = safe_append_row(sheet, [ts, "FACILITY_LOG", task, place, memo.strip(), staff.strip()])
-                if ok:
-                    st.success("DB 저장 성공")
-                else:
-                    st.error(f"DB 저장 실패: {err}")
-
-        # 카카오 보고
-        if send_k_fac:
-            msg = (
-                f"[시설 점검 보고]\n"
-                f"시간: {ts}\n"
-                f"점검자: {staff.strip()}\n"
-                f"유형: {task}\n"
-                f"구역: {place}\n"
-                f"내용: {memo.strip()}\n"
-            )
-            k_ok, k_err = send_kakao_message(msg)
-            if k_ok:
-                st.success("카카오 보고 성공")
-            else:
-                st.warning(f"카카오 보고 실패: {k_err}")
+                st.info("데이터가 없습니다.")
+        except Exception as e:
+            st.error(f"데이터 로드 실패: {e}")
