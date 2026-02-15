@@ -5,260 +5,365 @@ from datetime import datetime, timedelta
 import openai
 import requests
 import pandas as pd
-import json
 import re
-import time
 
 # -----------------------------------------------------------------------------
-# 1. 기본 설정
+# 1. 시스템 설정 & 스타일 (가독성 최우선 디자인)
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="MAP INTEGRATED SYSTEM", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="MAP 통합 관리 시스템", page_icon="🛡️", layout="wide")
+
+st.markdown("""
+<style>
+    /* 전체 배경: 깨끗한 화이트 */
+    .main {background-color: #FFFFFF; color: #111;}
+    
+    /* 입력 폼 스타일 */
+    .stForm {
+        background-color: #F8F9FA; 
+        padding: 25px; 
+        border-radius: 15px; 
+        border: 1px solid #E9ECEF;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+    }
+    
+    /* 결과 박스 공통 스타일 (글씨 크고 진하게) */
+    .result-box {
+        padding: 30px; 
+        border-radius: 15px; 
+        margin: 20px 0; 
+        border: 1px solid #ddd; 
+        font-size: 1.15em; /* 글씨 키움 */
+        line-height: 1.8;
+        color: #222 !important;
+    }
+    
+    /* 제목 스타일 */
+    .result-box h1, .result-box h2, .result-box h3, .result-box strong {
+        color: #000 !important; 
+        font-weight: 900;
+        letter-spacing: -0.5px;
+    }
+    
+    /* 상태별 시각적 디자인 (신호등 색상) */
+    .res-stop {
+        background-color: #FFF0F0; 
+        border-left: 10px solid #DC3545; /* 진한 빨강 */
+    } 
+    .res-mod {
+        background-color: #FFF9E6; 
+        border-left: 10px solid #FFC107; /* 진한 노랑 */
+    }
+    .res-go {
+        background-color: #F0F9F4; 
+        border-left: 10px solid #28A745; /* 진한 초록 */
+    }
+    
+    /* 관리자 카드 */
+    .metric-card {
+        background-color: #fff; border: 1px solid #eee; padding: 20px; 
+        border-radius: 12px; text-align: center; box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 2. 시간 (KST 고정)
+# 2. 유틸리티 함수
 # -----------------------------------------------------------------------------
 def get_korea_timestamp():
     return (datetime.utcnow() + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M:%S")
 
-# -----------------------------------------------------------------------------
-# 3. DB 연결 (강화 + 명확한 오류 출력)
-# -----------------------------------------------------------------------------
+def extract_kakao_message(full_text):
+    try:
+        # 한글 제목으로 변경됨에 따라 정규식 수정
+        match = re.search(r"3\. 💬 카카오톡 전송 템플릿\s*-+\s*(.*?)\s*-+", full_text, re.DOTALL)
+        if match: return match.group(1).strip()
+        # 못 찾으면 뒷부분 반환
+        return full_text[-200:]
+    except: return full_text[:100]
+
 def connect_db():
     try:
-        if "gcp_service_account" not in st.secrets:
-            return None, "Secrets 누락"
-
-        scope = [
-            "https://spreadsheets.google.com/feeds",
-            "https://www.googleapis.com/auth/drive"
-        ]
-
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(
-            dict(st.secrets["gcp_service_account"]),
-            scope
-        )
-
+        if "gcp_service_account" not in st.secrets: return None, "Secrets 설정 누락"
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets["gcp_service_account"]), scope)
         client = gspread.authorize(creds)
-        doc = client.open("MAP_DATABASE")
-        sheet = doc.sheet1
+        return client.open("MAP_DATABASE").sheet1, "✅ DB 연결됨"
+    except Exception as e: return None, str(e)
 
-        return sheet, "ONLINE"
-
-    except Exception as e:
-        return None, f"DB ERROR: {e}"
-
-# -----------------------------------------------------------------------------
-# 4. 안전한 DB 저장 (재시도 로직 포함)
-# -----------------------------------------------------------------------------
-def safe_append_row(sheet, row, retry=2):
-    for i in range(retry):
-        try:
-            sheet.append_row(row, value_input_option="USER_ENTERED")
-            return True, None
-        except Exception as e:
-            time.sleep(1)
-            last_error = str(e)
-    return False, last_error
-
-# -----------------------------------------------------------------------------
-# 5. 카카오 전송 (JSON 직렬화 안정화)
-# -----------------------------------------------------------------------------
 def send_kakao_message(text):
-    if "KAKAO_TOKEN" not in st.secrets:
-        return False, "토큰 없음"
+    try:
+        if "KAKAO_TOKEN" not in st.secrets: return False, "토큰 없음"
+        url = "https://kapi.kakao.com/v2/api/talk/memo/default/send"
+        headers = {"Authorization": "Bearer " + st.secrets["KAKAO_TOKEN"]}
+        data = {"template_object": str({"object_type": "text", "text": text, "link": {"web_url": "https://streamlit.io"}})}
+        res = requests.post(url, headers=headers, data=data)
+        return (True, "성공") if res.status_code == 200 else (False, f"실패({res.status_code})")
+    except Exception as e: return False, str(e)
 
-    url = "https://kapi.kakao.com/v2/api/talk/memo/default/send"
-    headers = {"Authorization": "Bearer " + st.secrets["KAKAO_TOKEN"]}
-
-    payload = {
-        "object_type": "text",
-        "text": text,
-        "link": {"web_url": "https://map-system.local"}
-    }
-
-    data = {"template_object": json.dumps(payload)}
-
-    res = requests.post(url, headers=headers, data=data)
-
-    if res.status_code == 200:
+def safe_append_row(sheet, row):
+    try:
+        sheet.append_row(row, value_input_option="USER_ENTERED")
         return True, None
-    else:
-        return False, res.text
+    except Exception as e: return False, str(e)
 
 # -----------------------------------------------------------------------------
-# 6. 판정 단일화 로직 (법정 방어 핵심)
+# 3. 사이드바 (로그인 & 상태)
 # -----------------------------------------------------------------------------
-def normalize_decision(text):
+st.sidebar.title("🔐 관리자 접속")
 
-    text_upper = text.upper()
+if "admin_logged_in" not in st.session_state:
+    st.session_state.admin_logged_in = False
 
-    if "STOP" in text_upper:
-        return "STOP"
+if not st.session_state.admin_logged_in:
+    password = st.sidebar.text_input("비밀번호", type="password")
+    if st.sidebar.button("로그인"):
+        if password == "1234": 
+            st.session_state.admin_logged_in = True
+            st.rerun()
+        else:
+            st.sidebar.error("비밀번호 오류")
+else:
+    st.sidebar.success("👑 관리자님 환영합니다")
+    if st.sidebar.button("로그아웃"):
+        st.session_state.admin_logged_in = False
+        st.rerun()
 
-    if "MODIFICATION" in text_upper:
-        return "MODIFICATION"
+sheet, db_msg = connect_db()
+if not sheet: st.error(f"DB 연결 실패: {db_msg}")
 
-    if "GO" in text_upper:
-        return "GO"
-
-    return "UNKNOWN"
-
-# -----------------------------------------------------------------------------
-# 7. OpenAI 연결
-# -----------------------------------------------------------------------------
 if "OPENAI_API_KEY" in st.secrets:
     ai_client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 else:
     ai_client = None
 
 # -----------------------------------------------------------------------------
-# 8. DB 연결 실행
+# 4. 프롬프트 (KOREAN EASY MODE) - 쉬운 한글 + 이모지 신호등
 # -----------------------------------------------------------------------------
-sheet, db_status = connect_db()
+MAP_CORE_PROMPT = """
+# MASTER SYSTEM: MAP_INTEGRATED_CORE_v2026 (EASY_KOREAN)
+# PRIORITY: Legal Safety > Operational Structure > Member Care
 
-# -----------------------------------------------------------------------------
-# 9. UI 상단
-# -----------------------------------------------------------------------------
-st.title("🛡️ MAP INTEGRATED SYSTEM – DEFENSE EDITION")
-st.write(f"System Time (KST): {get_korea_timestamp()}")
-st.write(f"Database Status: {db_status}")
+**[SYSTEM ROLE]**
+1. **Analysis:** Professional Safety Officer (Strict Biomechanics).
+2. **Output Language:** **100% Korean (Easy to understand).**
+3. **Visual Aid:** Use Emojis primarily for quick understanding.
 
-# -----------------------------------------------------------------------------
-# 10. 탭 구성
-# -----------------------------------------------------------------------------
-tab1, tab2, tab3 = st.tabs(
-    ["PT Safety Analysis", "Facility Log", "Admin Dashboard"]
-)
+**[ABSOLUTE RULES]**
+1. **NO MEDICAL TERMS:** Do NOT use '진단', '치료', '처방'. Use '판단', '관리', '가이드'.
+2. **TRAFFIC LIGHT SYSTEM:**
+   - STOP -> ⛔ **[즉시 중단]**
+   - MODIFICATION -> ⚠️ **[강도 조절/수정]**
+   - GO -> ✅ **[진행 가능]**
 
-# =============================================================================
-# [TAB 1] PT SAFETY ANALYSIS
-# =============================================================================
-with tab1:
+**[OUTPUT FORMATS]**
+You MUST output the response in the following structured sections using Markdown:
 
-    st.subheader("PT Administrative Safety Classification")
+### 1. 📋 현장 안전 리포트 (Trainer View)
+---
+**[분석 일시 : {Timestamp}]**
+**대상 회원:** {Client_Tag}
+**운동 계획:** {Exercise_Summary}
 
-    with st.form("pt_form"):
-        member = st.text_input("Member Info")
-        symptom = st.text_input("Current Condition")
-        exercise = st.text_input("Planned Exercise")
-        send_kakao = st.checkbox("Send Kakao Message", value=True)
-        submit = st.form_submit_button("Run Analysis")
+**1. 종합 판정:**
+(Select one below based on risk)
+- ⛔ **[즉시 중단]** (위험함)
+- ⚠️ **[조절 필요]** (주의 요망)
+- ✅ **[진행 가능]** (안전함)
 
-    if submit:
+**2. 위험 요인 (Risk):**
+- (Explain simply in Korean. e.g., "허리 통증이 있는데 데드리프트를 하면 부상 위험이 큽니다.")
 
-        if not ai_client:
-            st.error("AI not connected")
-        elif not sheet:
-            st.error("Database not connected")
-        else:
-            prompt = f"""
-You are a gym safety administration system.
-Categorize strictly as STOP / MODIFICATION / GO.
+**3. 현장 가이드:**
+- ⛔ **제한:** (하지 말아야 할 것)
+- ✅ **대체:** (대신 할 수 있는 안전한 운동)
+- ⚠️ **주의:** (운동 시 조심할 점 큐잉)
+---
 
-Member: {member}
-Condition: {symptom}
-Exercise: {exercise}
+### 2. 🔬 정밀 분석 로그 (Admin Record)
+---
+**🚩 레드 플래그 점검:** (통과 / 주의 / 위험 - 한글로 기재)
+**⚙️ 생체역학 원인 분석:** (전문적인 내용을 한글로 풀어서 기재)
+**🔒 개인정보 처리:** (마스킹 완료)
+---
+
+### 3. 💬 카카오톡 전송 템플릿 (Member View)
+---
+(Warm, polite tone. Use emojis to look friendly.)
+
+안녕하세요, **{Client_Tag}**님! 👋
+**킹스짐(King's Gym) 안전관리팀**입니다.
+
+오늘 컨디션을 확인해보니 **{Exercise_Summary}** 동작을 그대로 하시기엔 조금 무리가 될 수 있어요. 🧐
+
+회원님의 소중한 몸을 보호하기 위해, 오늘은
+👉 **(Write a warm suggestion based on the decision. e.g., "허리에 부담 없는 동작으로 바꿔서", "무게를 낮추고 안전하게")**
+진행하는 것으로 가이드를 잡았습니다.
+
+작은 불편함도 놓치지 않고, 가장 안전하고 효율적인 길로 안내하겠습니다.
+현장에서 트레이너 선생님의 안내를 잘 따라주세요! 💪
+
+(본 알림은 회원님의 안전을 위한 행정적 가이드입니다.)
+---
 """
 
-            response = ai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.2
-            )
+# -----------------------------------------------------------------------------
+# 5. 메인 UI (Dashboard Layout)
+# -----------------------------------------------------------------------------
+st.title("🛡️ MAP 통합 안전 관리 시스템")
+st.write(f"🕒 현재 시간: **{get_korea_timestamp()}**")
 
-            raw_text = response.choices[0].message.content
-            decision = normalize_decision(raw_text)
+# 탭 구성
+if st.session_state.admin_logged_in:
+    tab1, tab2, tab3 = st.tabs(["🧬 PT 안전 분류", "🏢 시설 관리 로그", "👑 관리자 대시보드"])
+else:
+    tab1, tab2 = st.tabs(["🧬 PT 안전 분류", "🏢 시설 관리 로그"])
+    tab3 = None
 
-            # 시각 출력
-            if decision == "STOP":
-                st.error(raw_text)
-            elif decision == "MODIFICATION":
-                st.warning(raw_text)
-            elif decision == "GO":
-                st.success(raw_text)
-            else:
-                st.info(raw_text)
+# === [TAB 1] PT 안전 분류 ===
+with tab1:
+    with st.container():
+        st.markdown("### 📋 PT 세션 안전 점검")
+        with st.form("pt_form"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**👤 회원 정보**")
+                member = st.text_input("회원 특이사항", placeholder="예: 50대 남성, 허리디스크")
+                
+                st.markdown("**🩺 컨디션 체크 (빠른 선택)**")
+                body_part = st.selectbox("주요 통증/불편 부위", 
+                                       ["없음 (양호)", "허리 (Lumbar)", "무릎 (Knee)", "어깨 (Shoulder)", "목 (Neck)", "손목/발목", "직접 입력"])
+                
+                detail_symptom = ""
+                if body_part == "직접 입력": detail_symptom = st.text_input("증상 상세 입력")
+                elif body_part != "없음 (양호)": detail_symptom = body_part + " 통증/불편감"
+                else: detail_symptom = "특이사항 없음"
 
-            # 로그 저장 (판정값은 반드시 단일화된 값으로 저장)
-            ok, err = safe_append_row(
-                sheet,
-                [
-                    get_korea_timestamp(),
-                    "PT_ANALYSIS",
-                    member,
-                    symptom,
-                    exercise,
-                    decision,
-                    raw_text[:3000]
-                ]
-            )
+            with col2:
+                st.markdown("**🏋️ 운동 계획**")
+                exercise = st.text_input("수행 예정 운동", placeholder="예: 데드리프트, 스쿼트")
+                
+                st.markdown("**📨 옵션**")
+                send_k = st.checkbox("✅ 분석 결과를 카카오톡으로 전송", value=True)
+                
+            st.divider()
+            btn = st.form_submit_button("🚀 안전 분석 실행 (Click)", use_container_width=True)
 
-            if not ok:
-                st.error(f"DB 저장 실패: {err}")
+    if btn:
+        if ai_client and sheet:
+            final_symptom = detail_symptom
+            
+            with st.status("🧠 AI 안전 엔진 가동 중...", expanded=True) as status:
+                try:
+                    status.write("🔍 1단계: 회원 컨디션 파악 중...")
+                    final_prompt = MAP_CORE_PROMPT.format(
+                        Timestamp=get_korea_timestamp(),
+                        Client_Tag=member,
+                        Exercise_Summary=exercise
+                    )
+                    final_prompt += f"\n\n[INPUT DATA]\nMember: {member}\nSymptom: {final_symptom}\nExercise: {exercise}\n\nAnalyze now."
 
-            # 카카오 전송
-            if send_kakao:
-                k_ok, k_err = send_kakao_message(raw_text)
-                if not k_ok:
-                    st.warning(f"Kakao 실패: {k_err}")
+                    status.write("⚖️ 2단계: 부상 위험도 계산 중...")
+                    response = ai_client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[{"role": "system", "content": final_prompt}],
+                        temperature=0.3
+                    )
+                    full_res = response.choices[0].message.content
+                    
+                    status.write("💾 3단계: 안전 데이터베이스 저장 중...")
+                    kakao_msg = extract_kakao_message(full_res)
+                    safe_append_row(sheet, [get_korea_timestamp(), "PT_SAFETY_LOG", member, final_symptom, exercise, "DONE", full_res[:4000]])
+                    
+                    status.update(label="✅ 분석 완료! 결과를 확인하세요.", state="complete", expanded=False)
+                    
+                    # 시각적 결과 표시 (신호등 로직)
+                    if "⛔" in full_res: css = "res-stop"
+                    elif "⚠️" in full_res: css = "res-mod"
+                    else: css = "res-go"
+                    
+                    st.markdown(f"<div class='result-box {css}'>{full_res}</div>", unsafe_allow_html=True)
 
-# =============================================================================
-# [TAB 2] FACILITY LOG
-# =============================================================================
+                    if send_k:
+                        k_ok, k_err = send_kakao_message(kakao_msg)
+                        if k_ok: st.success("💬 카카오톡 전송 성공")
+                        else: st.warning(f"카톡 전송 실패: {k_err}")
+
+                except Exception as e: 
+                    status.update(label="❌ 오류 발생", state="error")
+                    st.error(f"시스템 에러: {e}")
+
+# === [TAB 2] 시설 관리 ===
 with tab2:
-
-    st.subheader("Facility Safety Log")
-
-    with st.form("facility_form"):
-        task = st.selectbox("Task Type", ["Patrol", "Maintenance", "Cleaning"])
-        location = st.selectbox("Location", ["Cardio", "Weight", "Locker"])
-        memo = st.text_input("Notes", "Clear")
-        staff = st.text_input("Staff Name")
-        save = st.form_submit_button("Save Log")
+    with st.container():
+        st.markdown("### 🛠️ 시설 안전 점검 로그")
+        with st.form("fac_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                task = st.radio("작업 유형", ["시설 순찰 (Patrol)", "기구 정비 (Fix)", "청소/환경 (Clean)", "기타 조치"], horizontal=True)
+                place = st.radio("점검 구역", ["웨이트존", "유산소존", "탈의실/샤워장", "프리웨이트/GX"], horizontal=True)
+            with col2:
+                memo = st.text_input("특이사항 / 조치내용", "이상 없음 (Clear)")
+                staff = st.text_input("점검자 서명")
+                send_k_fac = st.checkbox("지점장님께 카톡 보고", value=True)
+            
+            st.divider()
+            save = st.form_submit_button("📝 점검 기록 저장", use_container_width=True)
 
     if save:
-        if not staff:
-            st.warning("Staff name required")
-        elif not sheet:
-            st.error("DB not connected")
-        else:
-            ok, err = safe_append_row(
-                sheet,
-                [
-                    get_korea_timestamp(),
-                    "FACILITY_LOG",
-                    task,
-                    location,
-                    memo,
-                    staff
-                ]
-            )
-
+        if sheet and staff:
+            ok, err = safe_append_row(sheet, [get_korea_timestamp(), "FACILITY", task, place, memo, staff])
             if ok:
-                st.success("Saved")
+                st.success(f"✅ [{task}] 저장 완료")
+                if send_k_fac:
+                    msg = f"[시설 점검 보고]\n시간: {get_korea_timestamp()}\n점검자: {staff}\n유형: {task}\n특이사항: {memo}"
+                    send_kakao_message(msg)
+            else: st.error(f"저장 실패: {err}")
+        elif not staff:
+            st.warning("⚠️ 점검자 이름을 입력해주세요.")
+
+# === [TAB 3] 👑 관리자 대시보드 ===
+if tab3 and sheet:
+    with tab3:
+        st.header("👑 관리자 통합 대시보드")
+        
+        if st.button("🔄 데이터 새로고침"): st.rerun()
+            
+        try:
+            data = sheet.get_all_values()
+            if len(data) > 1:
+                df = pd.DataFrame(data[1:], columns=["Timestamp", "Type", "Detail1", "Detail2", "Detail3", "Detail4", "RawData"])
+                
+                # 통계
+                st.markdown("#### 📊 실시간 현황")
+                m1, m2, m3, m4 = st.columns(4)
+                
+                total = len(df)
+                today_cnt = len(df[df['Timestamp'].str.contains(get_korea_timestamp()[:10], na=False)])
+                pt_cnt = len(df[df['Type'].str.contains("PT", na=False)])
+                fac_cnt = len(df[df['Type'].str.contains("FACILITY", na=False)])
+                
+                m1.metric("총 데이터", f"{total}건")
+                m2.metric("오늘 기록", f"{today_cnt}건", "+New")
+                m3.metric("PT 리포트", f"{pt_cnt}건")
+                m4.metric("시설 점검", f"{fac_cnt}건")
+                
+                st.divider()
+                
+                # 로그 뷰어
+                st.markdown("#### 📋 전체 로그 데이터")
+                filter_opt = st.selectbox("필터링 옵션", ["전체 보기", "PT 리포트만", "시설 점검만"])
+                
+                view_df = df
+                if filter_opt == "PT 리포트만": view_df = df[df['Type'].str.contains("PT", na=False)]
+                elif filter_opt == "시설 점검만": view_df = df[df['Type'].str.contains("FACILITY", na=False)]
+                
+                view_df = view_df.sort_values(by="Timestamp", ascending=False)
+                st.dataframe(view_df, use_container_width=True)
+                
+                csv = view_df.to_csv(index=False).encode('utf-8-sig')
+                st.download_button("📥 엑셀(CSV) 다운로드", csv, "map_logs.csv", "text/csv")
             else:
-                st.error(f"Save failed: {err}")
-
-# =============================================================================
-# [TAB 3] ADMIN DASHBOARD
-# =============================================================================
-with tab3:
-
-    if not sheet:
-        st.warning("DB not connected")
-    else:
-        data = sheet.get_all_values()
-
-        if len(data) > 1:
-
-            df = pd.DataFrame(data[1:], columns=data[0])
-
-            st.metric("Total Records", len(df))
-
-            st.dataframe(df.sort_values(by=df.columns[0], ascending=False))
-
-            csv = df.to_csv(index=False).encode("utf-8-sig")
-            st.download_button("Download CSV", csv, "map_logs.csv", "text/csv")
-
-        else:
-            st.info("No data")
+                st.info("데이터가 없습니다.")
+        except Exception as e:
+            st.error(f"데이터 로드 실패: {e}")
